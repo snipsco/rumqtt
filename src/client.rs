@@ -212,6 +212,29 @@ impl Handler for MqttClient {
                 MIO_CLIENT_STREAM => {
                     match self.state {
                         MqttState::Disconnected => {
+                            let stream = match self.opts.tls {
+                                Some(ref tls) => {
+                                    //TODO: Send failure to connect block if this fails here
+                                    let config = TlsStream::make_config(tls).expect("Config error");
+                                    let host = self.opts.addr.split(":");
+                                    let host: Vec<&str> = host.collect();
+                                    println!("@@@@ {:?}", host);
+                                    let stream = self.stream.get_ref().expect("No Stream");
+                                    let stream = stream.try_clone().expect("Couldn't clone tcp");
+                                    NetworkStream::Tls(TlsStream::new(stream, host[0], config))
+                                }
+                                None => {
+                                    let stream = self.stream.get_ref().expect("No Stream");
+                                    let stream = stream.try_clone().expect("Couldn't clone tcp");                          
+                                    NetworkStream::Tcp(stream)
+                                }
+                            };
+                            self.stream = stream;
+                            event_loop.register(self.stream.get_ref().unwrap(),
+                                                    MIO_CLIENT_STREAM,
+                                                    EventSet::writable(),
+                                                    PollOpt::edge() | PollOpt::oneshot())
+                                        .expect("Couldn't reregister");
                             debug!("sending mqtt connect packet ..");
                             match self._connect() {
                                 // @ If writing connect packet is successful means TCP
@@ -268,7 +291,9 @@ impl Handler for MqttClient {
         // TODO: Move timer handling logic to seperate methods
         match timer {
             MIO_PING_TIMER => {
-                debug!("client state --> {:?}, await_ping --> {}", self.state, self.await_ping);
+                debug!("client state --> {:?}, await_ping --> {}",
+                       self.state,
+                       self.await_ping);
 
                 match self.state {
                     MqttState::Connected => {
@@ -502,7 +527,9 @@ impl MqttClient {
         let (pub2_tx, pub2_rx) = mpsc::sync_channel::<Message>(self.opts.pub_q_len as usize);
         self.pub2_rx = Some(pub2_rx);
 
-        let (sub_tx, sub_rx) = mpsc::sync_channel::<Vec<(TopicFilter, QualityOfService)>>(self.opts.sub_q_len as usize);
+        let (sub_tx, sub_rx) =
+            mpsc::sync_channel::<Vec<(TopicFilter,
+                                      QualityOfService)>>(self.opts.sub_q_len as usize);
         self.sub_rx = Some(sub_rx);
 
         // synchronizes tcp connection. why ?
@@ -531,17 +558,7 @@ impl MqttClient {
         // Whether connection is successfu or not is to found
         // out in eventloop
         let stream = try!(TcpStream::connect(&self.addr));
-        let stream = match self.opts.tls {
-            Some(ref tls) => {
-                let config = try!(TlsStream::make_config(tls));
-                let host = self.opts.addr.split(":");
-                let host: Vec<&str> = host.collect();
-                // println!("@@@@ {:?}", host);
-                NetworkStream::Tls(TlsStream::new(stream, host[0], config))
-            }
-            None => NetworkStream::Tcp(stream),
-        };
-        self.stream = stream;
+        self.stream = NetworkStream::Tcp(stream);
 
         // TODO: Handle thread death
         thread::spawn(move || {
@@ -567,7 +584,9 @@ impl MqttClient {
     /// start.
     /// Just to know how many times the client reconnected (coz of bad
     /// networks, broker crashes etc)
-    pub fn get_reconnection_count(&self) -> u32 { self.no_of_reconnections }
+    pub fn get_reconnection_count(&self) -> u32 {
+        self.no_of_reconnections
+    }
 
     fn handle_packet(&mut self, packet: &VariablePacket) -> Result<HandlePacket> {
         match self.state {
@@ -583,7 +602,8 @@ impl MqttClient {
                         }
                     }
                     _ => {
-                        error!("received invalid packet in handshake state --> {:?}", packet);
+                        error!("received invalid packet in handshake state --> {:?}",
+                               packet);
                         Ok(HandlePacket::Invalid)
                     }
                 }
@@ -832,7 +852,8 @@ impl MqttClient {
                     // leading to dup notify.
                     // Send only for notify() to recover if channel is blocked.
                     // Blocking = true is set during publish if pub q len is more than desired.
-                    if self.outgoing_pub.len() < self.opts.pub_q_len as usize && self.should_qos1_block == true {
+                    if self.outgoing_pub.len() < self.opts.pub_q_len as usize &&
+                       self.should_qos1_block == true {
                         match self.mionotify_tx {
                             Some(ref mionotify_tx) => {
                                 self.should_qos1_block = false;
@@ -845,7 +866,8 @@ impl MqttClient {
                 }
                 // TODO: Better read from channel again after PubComp instead of PubRec
                 HandlePacket::PubRec => {
-                    if self.outgoing_rec.len() < self.opts.pub_q_len as usize && self.should_qos2_block == true {
+                    if self.outgoing_rec.len() < self.opts.pub_q_len as usize &&
+                       self.should_qos2_block == true {
                         match self.mionotify_tx {
                             Some(ref mionotify_tx) => {
                                 self.should_qos2_block = false;
@@ -917,7 +939,9 @@ impl MqttClient {
 
                 // Republish QoS 1 outgoing publishes
                 loop {
-                    if let Some(index) = self.outgoing_pub.iter().position(|ref x| time::get_time().sec - x.0 > timeout) {
+                    if let Some(index) = self.outgoing_pub
+                        .iter()
+                        .position(|ref x| time::get_time().sec - x.0 > timeout) {
                         let message = self.outgoing_pub.remove(index).expect("No such entry");
                         let _ = self._publish(*message.1);
                     } else {
@@ -927,7 +951,9 @@ impl MqttClient {
 
                 // Republish QoS 2 outgoing records
                 loop {
-                    if let Some(index) = self.outgoing_rec.iter().position(|ref x| time::get_time().sec - x.0 > timeout) {
+                    if let Some(index) = self.outgoing_rec
+                        .iter()
+                        .position(|ref x| time::get_time().sec - x.0 > timeout) {
                         let message = self.outgoing_rec.remove(index).expect("No such entry");
                         let _ = self._publish(*message.1);
                     } else {
@@ -943,7 +969,9 @@ impl MqttClient {
                 }
             }
 
-            MqttState::Disconnected | MqttState::Handshake => error!("I won't republish. Client isn't in connected state"),
+            MqttState::Disconnected | MqttState::Handshake => {
+                error!("I won't republish. Client isn't in connected state")
+            }
         }
     }
 
@@ -973,7 +1001,11 @@ impl MqttClient {
         let payload = &*message.payload;
         let retain = message.retain;
 
-        let publish_packet = try!(self._generate_publish_packet(message.topic.clone(), qos.clone(), retain, payload.clone()));
+        let publish_packet =
+            try!(self._generate_publish_packet(message.topic.clone(),
+                                               qos.clone(),
+                                               retain,
+                                               payload.clone()));
 
         match message.qos {
             QoSWithPacketIdentifier::Level0 => (),
@@ -990,7 +1022,10 @@ impl MqttClient {
                 }
             }
         }
-        debug!("       Publish {:?} {:?} > {} bytes", message.qos, message.topic.to_string(), message.payload.len());
+        debug!("       Publish {:?} {:?} > {} bytes",
+               message.qos,
+               message.topic.to_string(),
+               message.payload.len());
 
         // TODO: print error for failure here
         try!(self._write_packet(publish_packet));
@@ -1035,7 +1070,8 @@ impl MqttClient {
     }
 
     fn _generate_connect_packet(&self) -> Result<Vec<u8>> {
-        let mut connect_packet = ConnectPacket::new("MQTT".to_owned(), self.opts.client_id.clone().unwrap());
+        let mut connect_packet = ConnectPacket::new("MQTT".to_owned(),
+                                                    self.opts.client_id.clone().unwrap());
 
         connect_packet.set_clean_session(self.opts.clean_session);
 
@@ -1081,7 +1117,9 @@ impl MqttClient {
         Ok(buf)
     }
 
-    fn _generate_subscribe_packet(&self, topics: Vec<(TopicFilter, QualityOfService)>) -> Result<Vec<u8>> {
+    fn _generate_subscribe_packet(&self,
+                                  topics: Vec<(TopicFilter, QualityOfService)>)
+                                  -> Result<Vec<u8>> {
         let subscribe_packet = SubscribePacket::new(11, topics);
         let mut buf = Vec::new();
 

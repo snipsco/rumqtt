@@ -55,7 +55,7 @@ fn qos1_pub_block() {
     assert!(10 == final_count.load(Ordering::SeqCst));
 }
 
-#[ignore]
+//#[ignore]
 #[test]
 fn tls_connect() {
     env_logger::init().unwrap();
@@ -63,7 +63,7 @@ fn tls_connect() {
                                     .set_keep_alive(5)
                                     .set_pub_q_len(10)
                                     .set_reconnect(3)
-                                    .set_tls("/usr/local/ca.crt")
+                                    .set_tls("/home/raviteja/Desktop/mqtt_gcloud_certs/ca.crt")
                                     .broker("veh-test-mqtt-broker.atherengineering.in:8883");
 
     //TODO: Alert!!! Mosquitto seems to be unable to publish fast (loosing messsages
