@@ -816,16 +816,19 @@ impl MqttClient {
                 let stream = try!(TcpStream::connect(&self.addr));
                 let stream = match self.opts.tls {
                     Some(ref tls) => {
-                        let config = try!(TlsStream::make_config(tls));
                         let host = self.opts.addr.split(':');
                         let host: Vec<&str> = host.collect();
-                        // println!("@@@@ {:?}", host);
-                        NetworkStream::Tls(TlsStream::new(stream, host[0], config))
+                        println!("@@@@ {:?}", host);
+
+                        let tls_stream = try!(TlsStream::new_session(stream, host[0], tls));
+                        NetworkStream::Tls(tls_stream)
                     }
                     None => NetworkStream::Tcp(stream),
                 };
                 self.stream = stream;
                 try!(self._connect());
+                                        println!("######");
+
                 // TODO: Change states properly in one location
                 self.state = MqttState::Handshake;
                 Ok(())
