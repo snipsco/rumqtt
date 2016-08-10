@@ -58,7 +58,7 @@ extern crate mio;
 extern crate mqtt;
 extern crate time;
 extern crate rustls;
-extern crate jobsteal;
+extern crate threadpool;
 
 mod error;
 mod tls;
@@ -68,6 +68,7 @@ mod publisher;
 mod subscriber;
 mod client;
 
+pub use error::{Error, Result};
 pub use clientoptions::MqttOptions;
 pub use mqtt::QualityOfService as QoS;
 pub use client::MqttClient;
