@@ -4,6 +4,7 @@ use std::sync::mpsc::{TryRecvError, TrySendError, SendError};
 use std::net::TcpStream;
 
 use mqtt3::{self, ConnectReturnCode};
+use persist;
 
 use openssl;
 use connection::NetworkRequest;
@@ -32,6 +33,9 @@ quick_error! {
             from()
         }
         Mqtt3(err: mqtt3::Error) {
+            from()
+        }
+        Persist(err: persist::Error) {
             from()
         }
         ConnectionAbort

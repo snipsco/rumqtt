@@ -1,8 +1,3 @@
-#![cfg_attr(feature="clippy", feature(plugin))]
-
-#![cfg_attr(feature="clippy", plugin(clippy))]
-
-
 //! A fast, lock free Mqtt client implementation in Rust.
 //!
 //! **NOTE**: Though (almost) everything in the spec is working, this crate is
@@ -73,6 +68,7 @@ extern crate mqtt3;
 extern crate time;
 extern crate openssl;
 extern crate threadpool;
+extern crate persist;
 
 mod error;
 mod stream;

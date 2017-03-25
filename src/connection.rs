@@ -2,7 +2,7 @@ use std::net::{TcpStream, SocketAddr, Shutdown};
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 use std::thread;
-use std::io::{Write, ErrorKind};
+use std::io::{Cursor, Write, ErrorKind};
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -12,7 +12,11 @@ use clientoptions::MqttOptions;
 use stream::{NetworkStream, SslContext};
 use callbacks::MqttCallback;
 
-use mqtt3::{self, Connect, Connack, Publish, ConnectReturnCode, Protocol, PacketIdentifier, QoS, Packet, SubscribeTopic, Subscribe};
+use mqtt3::{self, MqttRead, Connect, Connack, Publish, ConnectReturnCode, Protocol, PacketIdentifier, QoS, Packet, SubscribeTopic,
+            Subscribe};
+
+use persist::{self, Persist};
+
 // static mut N: i32 = 0;
 
 pub type SubscribeTopics = Vec<(String, QoS)>;
@@ -34,7 +38,10 @@ impl Message {
     }
 
     pub fn transform(&self, pid: Option<PacketIdentifier>, qos: Option<QoS>) -> Box<Message> {
-        Box::new(Message{ message: *self.message.transform(pid, qos), userdata: None})
+        Box::new(Message {
+            message: *self.message.transform(pid, qos),
+            userdata: None,
+        })
     }
 }
 
@@ -81,6 +88,8 @@ pub struct Connection {
     pub no_of_reconnections: u32,
 
     pub pool: ThreadPool,
+
+    pub persist: Persist,
 }
 
 
@@ -110,6 +119,7 @@ impl Connection {
 
             // Threadpool
             pool: ThreadPool::new(1),
+            persist: Persist::new("/tmp/rumqttbackup")?,
         };
 
         // Make initial tcp connection, send connect packet and
@@ -210,7 +220,10 @@ impl Connection {
                         return Err(Error::PingTimeout);
                     }
 
-                    let _ = self.write();
+                    if let Err(e) = self.write() {
+                        error!("Write error = {:?}", e);
+                    }
+
                     Ok(())
                 }
                 _ => {
@@ -248,6 +261,33 @@ impl Connection {
                         self.subscribe(s)?
                     }
                 };
+            }
+
+            for _ in 0..10 {
+                match self.persist.read() {
+                    Ok(v) => {
+                        let mut packet = Cursor::new(v);
+                        if let Ok(packet) = packet.read_packet() {
+                            if let Packet::Publish(p) = packet {
+                                if let Ok(message) = Message::from_pub(p) {
+                                    self.publish(message)?;
+                                } else {
+                                    error!("Unable to create publish message from disk");
+                                }
+                            } else {
+                                error!("Unable to create publish packet from disk");
+                            }
+                        } else {
+                            error!("Unable to read packet from disk");
+                        }
+                    }
+                    Err(e) => { 
+                        match e {
+                            persist::Error::NoNextFile => break,
+                            _ => error!("Disk read error = {:?}", e),
+                        }
+                    },
+                }
             }
         }
         Ok(())

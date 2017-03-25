@@ -101,6 +101,29 @@ impl MqttClient {
         ret_val
     }
 
+    pub fn userdata_backuppublish(&mut self, topic: &str, qos: QoS, payload: Vec<u8>, userdata: Vec<u8>) -> Result<()> {
+        let payload = Arc::new(payload);
+        let userdata = Arc::new(userdata);
+        let mut ret_val;
+        let payload = payload.clone();
+        ret_val = self._publish(topic, false, qos, payload, Some(userdata.clone()));
+        
+        if let Err(Error::TrySend(ref e)) = ret_val {
+            match e {
+                // break immediately if rx is dropped
+                &TrySendError::Disconnected(_) => break,
+                &TrySendError::Full(_) => {
+                    warn!("Request Queue Full !!!!!!!!");
+                    //TODO: create publish packet here and convert it to Vec<u8>
+                }
+            }
+        } else {
+            return ret_val;
+        }
+        
+        ret_val
+    }
+
     pub fn retained_userdata_publish(&mut self, topic: &str, qos: QoS, payload: Vec<u8>, userdata: Vec<u8>) -> Result<()> {
         let payload = Arc::new(payload);
         let userdata = Arc::new(userdata);
