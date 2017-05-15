@@ -17,8 +17,10 @@ use callbacks::MqttCallback;
 use std::time::Duration;
 use std::sync::mpsc::TrySendError;
 
+use persist::{Persist, Sender};
+
 pub struct MqttClient {
-    pub nw_request_tx: SyncSender<NetworkRequest>,
+    pub nw_request_tx: Sender<NetworkRequest>,
 }
 
 impl MqttClient {
@@ -36,7 +38,11 @@ impl MqttClient {
     /// Returns 'Request' and handles reqests from it.
     /// Also handles network events, reconnections and retransmissions.
     pub fn start(opts: MqttOptions, callbacks: Option<MqttCallback>) -> Result<Self> {
-        let (nw_request_tx, nw_request_rx) = sync_channel::<NetworkRequest>(50);
+        let mut persist = Persist::new();
+        persist.set_backup_path("new_backup");
+        /// Set limit of 500MB's
+        persist.set_limit(500000);
+        let (nw_request_tx, nw_request_rx) = persist.channel::<NetworkRequest>(50).unwrap();
         let addr = Self::lookup_ipv4(opts.addr.as_str());
         let mut connection = Connection::connect(addr, opts.clone(), nw_request_rx, callbacks)?;
         // This thread handles network reads (coz they are blocking) and
@@ -125,12 +131,12 @@ impl MqttClient {
         self._publish(topic, true, qos, payload, Some(userdata))
     }
 
-    pub fn disconnect(&self) -> Result<()> {
+    pub fn disconnect(&mut self) -> Result<()> {
         self.nw_request_tx.send(NetworkRequest::Disconnect)?;
         Ok(())
     }
 
-    pub fn shutdown(&self) -> Result<()> {
+    pub fn shutdown(&mut self) -> Result<()> {
         self.nw_request_tx.send(NetworkRequest::Shutdown)?;
         Ok(())
     }
@@ -162,7 +168,7 @@ impl MqttClient {
         match qos {
             QualityOfService::Level0 |
             QualityOfService::Level1 |
-            QualityOfService::Level2 => self.nw_request_tx.try_send(NetworkRequest::Publish(message))?,
+            QualityOfService::Level2 => self.nw_request_tx.send(NetworkRequest::Publish(message))?,
         };
 
         Ok(())

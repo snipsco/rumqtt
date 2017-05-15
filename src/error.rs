@@ -9,6 +9,7 @@ use mqtt::topic_filter::TopicFilterError;
 use mqtt::packet::*;
 use mqtt::control::variable_header::ConnectReturnCode;
 use connection::NetworkRequest;
+use persist::error::Error as PersistErr; 
 
 pub type SslError = openssl::error::ErrorStack;
 pub type HandShakeError = openssl::ssl::HandshakeError<TcpStream>;
@@ -44,6 +45,7 @@ quick_error! {
         InvalidPacket
         Packet
         MqttPacket
+        PersistErr
         PingTimeout
         AwaitPingResp
         Ssl(e: SslError) {
@@ -58,4 +60,8 @@ quick_error! {
 
 impl<'a, P: Packet<'a>> From<PacketError<'a, P>> for Error {
     fn from(_: PacketError<'a, P>) -> Error { Error::MqttPacket }
+}
+
+impl From<PersistErr> for Error {
+    fn from(_: PersistErr) -> Error { Error::PersistErr }
 }

@@ -5,7 +5,7 @@ use mqtt::topic_name::TopicName;
 use mqtt::packet::*;
 use error::Result;
 
-#[derive(Clone)] //TODO: add Clone here
+#[derive(Clone, Serialize, Deserialize)] //TODO: add Clone here
 pub struct Message {
     pub topic: TopicName,
     pub retain: bool,

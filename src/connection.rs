@@ -1,5 +1,6 @@
 use std::net::{TcpStream, SocketAddr, Shutdown};
-use std::sync::mpsc::Receiver;
+// use std::sync::mpsc::Receiver;
+use persist::Receiver;
 use std::time::{Duration, Instant};
 use std::thread;
 use std::io::{Write, ErrorKind};
@@ -41,7 +42,7 @@ pub enum MqttState {
     Disconnected,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum NetworkRequest {
     Subscribe(Vec<(TopicFilter, QualityOfService)>),
     Publish(Message),

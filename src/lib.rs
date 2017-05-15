@@ -73,6 +73,10 @@ extern crate mqtt;
 extern crate time;
 extern crate openssl;
 extern crate threadpool;
+extern crate persist;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 
 mod error;
 mod genpack;
