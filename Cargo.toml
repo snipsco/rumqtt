@@ -1,0 +1,13 @@
+[package]
+authors = ["Mathieu Poumeyrol <kali@zoy.org>"]
+name = "tokiott"
+version = "0.1.0"
+
+[dependencies]
+bytes = "0.4.5"
+error-chain = "0.11.0"
+futures = "0.1.17"
+mqtt-protocol = "0.4.2"
+tokio = "0.0.0"
+tokio-core = "0.1.10"
+tokio-io = "0.1.3"
