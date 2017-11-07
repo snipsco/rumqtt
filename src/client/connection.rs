@@ -45,7 +45,6 @@ pub fn start(opts: MqttOptions, commands_tx: Sender<Request>, commands_rx: Recei
     // let notifier = notifier_tx;
     let mqtt_state = Rc::new(RefCell::new(MqttState::new(opts.clone())));
 
-
     'reconnect: loop {
         // NOTE: If we move this out, what happen's to futures spawned in previous iteration? memory keeps growing?
         let mut reactor = Core::new().unwrap();
@@ -63,7 +62,6 @@ pub fn start(opts: MqttOptions, commands_tx: Sender<Request>, commands_rx: Recei
         let mqtt_state_ping         = Rc::clone(&mqtt_state);
 
         let initial_connect = mqtt_state_main.borrow().initial_connect();
-        
 
         let framed = match mqtt_connect(mqtt_state_connect, opts.clone(), &mut reactor) {
             Ok(framed) => framed,
@@ -86,20 +84,26 @@ pub fn start(opts: MqttOptions, commands_tx: Sender<Request>, commands_rx: Recei
             }
         };
 
-        let client = async_block! {
+        let client = {
             let (mut sender, receiver) = framed.split();
             let ping_commands_tx = commands_tx.clone();
             let nw_commands_tx = commands_tx.clone();
 
             // incoming network messages
-            handle.spawn(
-                incoming_network_packet_handler(mqtt_state_mqtt_recv, receiver, nw_commands_tx, notifier_tx).then(|result| {
+            let incoming = // handle.execute(
+                incoming_network_packet_handler(mqtt_state_mqtt_recv, receiver, nw_commands_tx, notifier_tx)
+//            );
+            ;
+            /*
+            .map(|result| {
                 match result {
                     Ok(_) => error!("N/w receiver done"),
                     Err(e) => error!("N/w packet handler failed. Error = {:?}", e),
                 }
-                Ok(())
             }));
+            */
+
+/*
 
             // ping timer
             handle.spawn(
@@ -110,7 +114,8 @@ pub fn start(opts: MqttOptions, commands_tx: Sender<Request>, commands_rx: Recei
                 }
                 Ok(())
             }));
-
+*/
+/*
             let last_session_publishes = mqtt_state_main.borrow_mut().handle_reconnection();
             // republish last session unacked packets
             if last_session_publishes.is_some() {
@@ -119,7 +124,9 @@ pub fn start(opts: MqttOptions, commands_tx: Sender<Request>, commands_rx: Recei
                     sender = await!(sender.send(packet))?;
                 }
             }
+*/
 
+/*
             // execute user requests  
             'user_requests: loop {
                 let client_request = match await!(commands_rx.into_future().map_err(|e| e.0))? {
@@ -150,10 +157,12 @@ pub fn start(opts: MqttOptions, commands_tx: Sender<Request>, commands_rx: Recei
             } // end of command recv loop
 
             Ok::<_, io::Error>(commands_rx)
+            */
+            incoming
         }; // end of async mqtt future
 
         let response = reactor.run(client);
-        commands_rx = response.unwrap();
+        //commands_rx = response.or_else(|e|
 
         error!("Done with eventloop");
     }
@@ -212,6 +221,7 @@ fn mqtt_connect(mqtt_state: Rc<RefCell<MqttState>>, opts: MqttOptions, reactor: 
     }
 }
 
+/*
 #[async]
 fn ping_timer(mqtt_state: Rc<RefCell<MqttState>>, mut commands_tx: Sender<Request>, keep_alive: u16) -> io::Result<()> {
     let timer = Timer::default();
@@ -231,13 +241,11 @@ fn ping_timer(mqtt_state: Rc<RefCell<MqttState>>, mut commands_tx: Sender<Reques
 
     Ok(())
 }
+*/
 
-#[async]
 fn incoming_network_packet_handler(mqtt_state: Rc<RefCell<MqttState>>, receiver: SplitStream<Framed<TcpStream, MqttCodec>>, 
-                                   mut commands_tx: Sender<Request>, notifier: stdmpsc::SyncSender<Packet>) -> io::Result<()> {
-
-    #[async]
-    for message in receiver {
+                                   mut commands_tx: Sender<Request>, notifier: stdmpsc::SyncSender<Packet>) -> Box<Future<Item=(),Error=io::Error>> {
+    let fut = receiver.for_each(move |message| {
         info!("incoming n/w message = {:?}", message);
         match message {
             Packet::Connack(connack) => {
@@ -263,7 +271,7 @@ fn incoming_network_packet_handler(mqtt_state: Rc<RefCell<MqttState>>, receiver:
                         error!("Publish notification send failed. Error = {:?}", e);
                     }
                 }
-
+/*
                 if let Some(ack) = ack {
                     match ack {
                         Packet::Puback(pkid) => {
@@ -272,6 +280,7 @@ fn incoming_network_packet_handler(mqtt_state: Rc<RefCell<MqttState>>, receiver:
                         _ => unimplemented!()
                     };
                 }
+                */
             }
             Packet::Suback(suback) => {
                 if let Err(e) = notifier.try_send(Packet::Suback(suback)) {
@@ -279,12 +288,11 @@ fn incoming_network_packet_handler(mqtt_state: Rc<RefCell<MqttState>>, receiver:
                 }
             }
             _ => unimplemented!()
-        }
-    }
-
-    error!("Network reciever stopped. Sending disconnect request");
-    match await!(commands_tx.send(Request::Disconnect)) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(io::Error::new(ErrorKind::Other, e.description())),
-    }
+        };
+        Ok(())
+    }).into_future().and_then(|_| {
+        error!("Network reciever stopped. Sending disconnect request");
+        commands_tx.send(Request::Disconnect).map_err(|e| io::Error::new(ErrorKind::Other, e.description()))
+    }).map(|_| ());
+    Box::new(fut)
 }
