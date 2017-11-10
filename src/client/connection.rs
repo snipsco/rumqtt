@@ -2,74 +2,42 @@ use std::net::SocketAddr;
 use std::thread;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::io::{self, ErrorKind};
-use std::sync::mpsc as stdmpsc;
+use std::io;
 use std::time::Duration;
-use std::error::Error;
-use std::result::Result;
 
+use mqtt3;
 use codec::MqttCodec;
 use MqttOptions;
 use client::state::MqttState;
 use ReconnectOptions;
 use error::*;
+use client::Command;
 
-use mqtt3::*;
+use std::error::Error;
+
 use futures::stream::{Stream, SplitStream};
 use futures::sync::mpsc::{Sender, Receiver};
 use tokio_core::reactor::Core;
 use futures::prelude::*;
 
 use tokio_core::net::TcpStream;
-use tokio_timer::Timer;
+//use tokio_timer::Timer;
 use tokio_io::AsyncRead;
 use tokio_io::codec::Framed;
 
-#[derive(Debug)]
-pub enum Request {
-    Subscribe(Vec<SubscribeTopic>),
-    Publish(Publish),
-    Puback(PacketIdentifier),
-    Connect,
-    Ping,
-    Disconnect,
-}
+pub fn start(opts: MqttOptions, commands_tx: Sender<Command>, commands_rx: Receiver<Command>) {
+    let mut mqtt_state = MqttState::new(opts.clone());
 
-pub fn start(opts: MqttOptions, commands_tx: Sender<Request>, commands_rx: Receiver<Request>, notifier_tx: stdmpsc::SyncSender<Packet>) {
-
-    let mut commands_rx = commands_rx.or_else(|_| {
-        Err(io::Error::new(ErrorKind::Other, "Rx Error"))
-    });
-
-    // tries sends interesting incoming messages back to user
-    // let notifier = notifier_tx;
-    let mqtt_state = Rc::new(RefCell::new(MqttState::new(opts.clone())));
+    outgoing = 
 
     'reconnect: loop {
-        // NOTE: If we move this out, what happen's to futures spawned in previous iteration? memory keeps growing?
-        let mut reactor = Core::new().unwrap();
-        let handle = reactor.handle();
-        let commands_tx = commands_tx.clone();
-        let notifier_tx = notifier_tx.clone();
-
-        // TODO: fix the clone
-        let opts = opts.clone();
-        let reconnect_opts = opts.reconnect;
-
-        let mqtt_state_main         = Rc::clone(&mqtt_state);
-        let mqtt_state_connect      = Rc::clone(&mqtt_state);
-        let mqtt_state_mqtt_recv    = Rc::clone(&mqtt_state);
-        let mqtt_state_ping         = Rc::clone(&mqtt_state);
-
-        let initial_connect = mqtt_state_main.borrow().initial_connect();
-
-        let framed = match mqtt_connect(mqtt_state_connect, opts.clone(), &mut reactor) {
+        let mut framed = match mqtt_connect(&mut mqtt_state, &opts, &mut reactor) {
             Ok(framed) => framed,
             Err(e) => {
                 error!("Connection error = {:?}", e);
-                match reconnect_opts {
+                match opts.reconnect {
                     ReconnectOptions::Never => break 'reconnect,
-                    ReconnectOptions::AfterFirstSuccess(d) if !initial_connect => {
+                    ReconnectOptions::AfterFirstSuccess(d) if !mqtt_state.initial_connect() => {
                         info!("Will retry connecting again in {} seconds", d);
                         thread::sleep(Duration::new(u64::from(d), 0));
                         continue 'reconnect;
@@ -83,147 +51,111 @@ pub fn start(opts: MqttOptions, commands_tx: Sender<Request>, commands_rx: Recei
                 }
             }
         };
+        let (sndr, rcvr) = framed.split();
+        reactor.run(framed)
+    }
+}
 
-        let client = {
-            let (mut sender, receiver) = framed.split();
-            let ping_commands_tx = commands_tx.clone();
-            let nw_commands_tx = commands_tx.clone();
-
-            // incoming network messages
-            let incoming = // handle.execute(
-                incoming_network_packet_handler(mqtt_state_mqtt_recv, receiver, nw_commands_tx, notifier_tx)
-//            );
-            ;
-            /*
-            .map(|result| {
-                match result {
-                    Ok(_) => error!("N/w receiver done"),
-                    Err(e) => error!("N/w packet handler failed. Error = {:?}", e),
-                }
-            }));
-            */
-
+type Fut<T> = Future<Item = T, Error = ::error::Error>;
 /*
+struct ConnectionState<'a> {
+    mqtt_state: &'a mut MqttState,
+    commands_rx: Rc<RefCell<Receiver<Command>>>,
+    net_outgoing: Rc<RefCell<::futures::stream::SplitSink<Framed<TcpStream, MqttCodec>>>>,
+}
 
-            // ping timer
-            handle.spawn(
-                ping_timer(mqtt_state_ping, ping_commands_tx, opts.keep_alive.unwrap()).then(|result| {
-                match result {
-                    Ok(_) => error!("Ping timer done"),
-                    Err(e) => error!("Ping timer IO error {:?}", e),
-                }
-                Ok(())
-            }));
-*/
-/*
-            let last_session_publishes = mqtt_state_main.borrow_mut().handle_reconnection();
-            // republish last session unacked packets
-            if last_session_publishes.is_some() {
-                for publish in last_session_publishes.unwrap() {
-                    let packet = Packet::Publish(publish);
-                    sender = await!(sender.send(packet))?;
-                }
+impl<'a> ConnectionState<'a> {
+    fn run(&mut self, mut reactor: Core) {
+        let commands_rx = Rc::clone(&self.commands_rx);
+        let coms = commands_rx.borrow_mut();
+        let commands = coms.for_each(|c| self.handle_command(c).map_err(|_| ()));
+        reactor.run(commands).into_future();
+    }
+    */
+
+    fn handle_command(outgoing: command: Command) -> Box<Fut<()>> {
+        use futures::future::result;
+        use error::Error;
+        debug!("deal with command: {:?}", command);
+        match command {
+            Command::Publish(publish) => {
+                let publish = mqtt3::Publish {
+                    topic_name: publish.topic,
+                    dup: false,
+                    pid: None,
+                    qos: publish.qos,
+                    retain: false,
+                    payload: ::std::sync::Arc::new(publish.payload),
+                };
+                let mut outgoing = Rc::clone(&self.net_outgoing);
+                let fut = result(self.mqtt_state.handle_outgoing_publish(publish))
+                    .from_err::<Error>()
+                    .and_then(move |packet| {
+                        let mut out = outgoing.borrow_mut();
+                        result(out.start_send(mqtt3::Packet::Publish(packet))).from_err()
+                    })
+                    .map(|_| ());
+                Box::new(fut)
             }
-*/
-
-/*
-            // execute user requests  
-            'user_requests: loop {
-                let client_request = match await!(commands_rx.into_future().map_err(|e| e.0))? {
-                    (Some(item), s) => {
-                        commands_rx = s;
-                        item
-                    }
-                    (None, s) => {
-                        commands_rx = s;
-                        break 'user_requests
-                    }
-                };
-
-                info!("command = {:?}", client_request);
-
-                let packet = match handle_client_requests(mqtt_state_main.clone(), client_request) {
-                    Ok(p) => p,
-                    Err(e) => return Err(io::Error::new(ErrorKind::Other, e.description()))
-                };
-
-                sender = match await!(sender.send(packet)) {
-                    Ok(sender) => sender,
-                    Err(e) => {
-                        error!("Failed n/w transmission. Error = {:?}", e);
-                        return Ok(commands_rx)
-                    }
-                }
-            } // end of command recv loop
-
-            Ok::<_, io::Error>(commands_rx)
+            /*
+            Command::Ping => {
+                let _ping = mqtt_state.borrow_mut().handle_outgoing_ping()?;
+                Ok(mqtt3::Packet::Pingreq)
+            }
             */
-            incoming
-        }; // end of async mqtt future
-
-        let response = reactor.run(client);
-        //commands_rx = response.or_else(|e|
-
-        error!("Done with eventloop");
-    }
-}
-
-fn handle_client_requests(mqtt_state: Rc<RefCell<MqttState>>, client_request: Request) -> Result<Packet, StateError> {
-    match client_request {
-        Request::Publish(publish) => {
-            let publish = mqtt_state.borrow_mut().handle_outgoing_publish(publish)?;
-            Ok(Packet::Publish(publish))
-        },
-        Request::Ping => {
-            let _ping = mqtt_state.borrow_mut().handle_outgoing_ping()?;
-            Ok(Packet::Pingreq)
+            /*
+            Command::Subscribe(subs) => {
+                Box::new(result(self.mqtt_state.handle_outgoing_subscribe(vec!(subs.topic))).and_then(|packet|
+                    self.net_outgoing.start_send(::mqtt3::Packet::Subscribe(packet)).into_future().from_err().map(|_| ())
+                ))
+            },
+            */
+            /*
+            Command::Disconnect => {
+                mqtt_state.borrow_mut().handle_disconnect();
+                Ok(mqtt3::Packet::Disconnect)
+            },
+            */
+            /*
+            Command::Puback(pkid) => Ok(mqtt3::Packet::Puback(pkid)),
+            */
+            _ => unimplemented!(),
         }
-        Request::Subscribe(subs) => {
-            let subscription = mqtt_state.borrow_mut().handle_outgoing_subscribe(subs)?;
-            Ok(Packet::Subscribe(subscription))
-        }
-        Request::Disconnect => {
-            mqtt_state.borrow_mut().handle_disconnect();
-            Ok(Packet::Disconnect)
-        },
-        Request::Puback(pkid) => Ok(Packet::Puback(pkid)),
-        _ => unimplemented!(),
     }
-}
+//}
 
 
-fn mqtt_connect(mqtt_state: Rc<RefCell<MqttState>>, opts: MqttOptions, reactor: &mut Core) -> Result<Framed<TcpStream, MqttCodec>, ConnectError> {
+fn mqtt_connect(
+    mqtt_state: &mut MqttState,
+    opts: &MqttOptions,
+    reactor: &mut Core,
+) -> Result<Framed<TcpStream, MqttCodec>> {
     // NOTE: make sure that dns resolution happens during reconnection to handle changes in server ip
+    println!("opts: {:?}", opts.broker_addr);
     let addr: SocketAddr = opts.broker_addr.as_str().parse().unwrap();
+    println!("addr: {:?}", addr);
 
     // TODO: Add TLS support with client authentication (ca = roots.pem for iotcore)
 
-    let f_response = TcpStream::connect(&addr, &reactor.handle()).and_then(|connection| {
-        let framed = connection.framed(MqttCodec);
-        let connect = mqtt_state.borrow_mut().handle_outgoing_connect();
-        let f1 = framed.send(Packet::Connect(connect));
-
-        f1.and_then(|framed| {
-            framed.into_future().and_then(|(res, stream)| Ok((res, stream))).map_err(|(err, _stream)| err)
-        })
-    });
-
-    let response = reactor.run(f_response);
-    let (packet, frame) = response?;
-
-    // Return `Framed` and previous session packets that are to be republished
+    let connection = TcpStream::connect(&addr, &reactor.handle());
+    let framed = reactor.run(connection)?.framed(MqttCodec);
+    let connect = mqtt_state.handle_outgoing_connect();
+    let framed = reactor.run(framed.send(mqtt3::Packet::Connect(connect)))?;
+    Ok(framed)
+    /*
     match packet.unwrap() {
-        Packet::Connack(connack) => {
+        mqtt3::Packet::Connack(connack) => {
             mqtt_state.borrow_mut().handle_incoming_connack(connack)?;
             Ok(frame)
         }
         _ => unimplemented!(),
     }
+    */
 }
 
 /*
 #[async]
-fn ping_timer(mqtt_state: Rc<RefCell<MqttState>>, mut commands_tx: Sender<Request>, keep_alive: u16) -> io::Result<()> {
+fn ping_timer(mqtt_state: Rc<RefCell<MqttState>>, mut commands_tx: Sender<Command>, keep_alive: u16) -> io::Result<()> {
     let timer = Timer::default();
     let interval = timer.interval(Duration::new(u64::from(keep_alive), 0));
 
@@ -232,7 +164,7 @@ fn ping_timer(mqtt_state: Rc<RefCell<MqttState>>, mut commands_tx: Sender<Reques
         if mqtt_state.borrow().is_ping_required() {
             debug!("Ping timer fire");
             commands_tx = await!(
-                commands_tx.send(Request::Ping).or_else(|e| {
+                commands_tx.send(Command::Ping).or_else(|e| {
                     Err(io::Error::new(ErrorKind::Other, e.description()))
                 })
             )?;
@@ -243,56 +175,69 @@ fn ping_timer(mqtt_state: Rc<RefCell<MqttState>>, mut commands_tx: Sender<Reques
 }
 */
 
-fn incoming_network_packet_handler(mqtt_state: Rc<RefCell<MqttState>>, receiver: SplitStream<Framed<TcpStream, MqttCodec>>, 
-                                   mut commands_tx: Sender<Request>, notifier: stdmpsc::SyncSender<Packet>) -> Box<Future<Item=(),Error=io::Error>> {
-    let fut = receiver.for_each(move |message| {
-        info!("incoming n/w message = {:?}", message);
-        match message {
-            Packet::Connack(connack) => {
-                if let Err(e) = mqtt_state.borrow_mut().handle_incoming_connack(connack) {
-                    return Err(io::Error::new(ErrorKind::Other, e.description()))
+fn incoming_network_packet_handler(
+    mqtt_state: Rc<RefCell<MqttState>>,
+    receiver: SplitStream<Framed<TcpStream, MqttCodec>>,
+    mut commands_tx: Sender<Command>,
+) -> Box<Future<Item = (), Error = ::error::Error>> {
+    let fut = receiver
+        .for_each(move |message| {
+            info!("incoming n/w message = {:?}", message);
+            match message {
+                mqtt3::Packet::Connack(connack) => {
+                    mqtt_state.borrow_mut().handle_incoming_connack(connack);
                 }
-            }
-            Packet::Puback(ack) => {
+                mqtt3::Packet::Puback(ack) => {
+                    /*
                 if let Err(e) = notifier.try_send(Packet::Puback(ack)) {
                     error!("Puback notification send failed. Error = {:?}", e);
                 }
-                // ignore unsolicited ack errors
-                let _ = mqtt_state.borrow_mut().handle_incoming_puback(ack);
-            }
-            Packet::Pingresp => {
-                mqtt_state.borrow_mut().handle_incoming_pingresp();
-            }
-            Packet::Publish(publish) => {
-                let (publish, ack) = mqtt_state.borrow_mut().handle_incoming_publish(publish);
-
+                */
+                    // ignore unsolicited ack errors
+                    let _ = mqtt_state.borrow_mut().handle_incoming_puback(ack);
+                }
+                mqtt3::Packet::Pingresp => {
+                    mqtt_state.borrow_mut().handle_incoming_pingresp();
+                }
+                mqtt3::Packet::Publish(publish) => {
+                    let (publish, ack) = mqtt_state.borrow_mut().handle_incoming_publish(publish);
+                    /*
                 if let Some(publish) = publish {
                     if let Err(e) = notifier.try_send(Packet::Publish(publish)) {
                         error!("Publish notification send failed. Error = {:?}", e);
                     }
                 }
-/*
+                */
+                    /*
                 if let Some(ack) = ack {
                     match ack {
                         Packet::Puback(pkid) => {
-                            commands_tx = await!(commands_tx.send(Request::Puback(pkid))).unwrap();
+                            commands_tx = await!(commands_tx.send(Command::Puback(pkid))).unwrap();
                         }
                         _ => unimplemented!()
                     };
                 }
                 */
-            }
+                }
+                /*
             Packet::Suback(suback) => {
                 if let Err(e) = notifier.try_send(Packet::Suback(suback)) {
                     error!("Suback notification send failed. Error = {:?}", e);
                 }
             }
-            _ => unimplemented!()
-        };
-        Ok(())
-    }).into_future().and_then(|_| {
-        error!("Network reciever stopped. Sending disconnect request");
-        commands_tx.send(Request::Disconnect).map_err(|e| io::Error::new(ErrorKind::Other, e.description()))
-    }).map(|_| ());
+            */
+                _ => unimplemented!(),
+            };
+            Ok(())
+        })
+        .into_future()
+        .from_err::<::error::Error>()
+        .and_then(|_| {
+            error!("Network reciever stopped. Sending disconnect request");
+            commands_tx.send(Command::Disconnect).map_err(|e| {
+                e.description().into()
+            })
+        })
+        .map(|_| ());
     Box::new(fut)
 }

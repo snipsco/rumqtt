@@ -1,8 +1,17 @@
-use mqtt3;
-use futures::sync::mpsc::SendError;
-use client::Request;
-use std::io::Error as IoError;
+#![allow(unused_doc_comment)]
 
+error_chain! {
+    foreign_links {
+        Io(::std::io::Error);
+    }
+    errors {
+        InvalidState {
+            description("invalid state")
+            display("invalid state")}
+        }
+}
+
+/*
 quick_error! {
     #[derive(Debug)]
     pub enum Error {
@@ -76,6 +85,8 @@ quick_error! {
         InvalidState
     }
 }
+
+*/
 
 // quick_error! {
 //     #[derive(Debug, PartialEq)]

@@ -55,7 +55,7 @@ impl Decoder for MqttCodec {
         // println!("{:?}, {:?}, {:?}", len, packet, buf.len());
 
         buf.split_to(len);
-
+        debug!("rcve {:?}", packet);
         Ok(Some(packet))
     }
 }
@@ -73,6 +73,7 @@ impl Encoder for MqttCodec {
             return Err(io::Error::new(io::ErrorKind::Other, "Unable to encode!"));
         }
 
+        debug!("send {:?}", msg);
         buf.extend(stream.get_ref());
 
         Ok(())

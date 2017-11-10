@@ -1,3 +1,4 @@
+extern crate mqtt3;
 extern crate rumqtt;
 extern crate loggerv;
 
@@ -11,14 +12,15 @@ fn main() {
     let mqtt_opts = MqttOptions::new("rumqtt-core", "127.0.0.1:1883")
                                 .set_reconnect_opts(ReconnectOptions::AfterFirstSuccess(10));
 
-    let (mut client, receiver) = MqttClient::start(mqtt_opts);
+    let mut client = MqttClient::start(mqtt_opts);
 
-    client.subscribe(vec![("hello/world", QoS::AtLeastOnce)]);
-
-    thread::spawn(move || {
-        for msg in receiver {
-            println!("Received = {:?}", msg);
-        }
+    client.subscribe_object(rumqtt::Subscription {
+        id: Some("sub".into()),
+        topic: ::mqtt3::SubscribeTopic {
+            topic_path: "hello/world".into(),
+            qos: QoS::AtLeastOnce
+        },
+        callback: Box::new(move |msg| { println!("Received {:?}", msg) })
     });
 
     for i in 0..100 {

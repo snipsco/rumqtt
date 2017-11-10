@@ -11,7 +11,7 @@ fn main() {
     let mqtt_opts = MqttOptions::new("rumqtt-core", "127.0.0.1:1883")
                                 .set_reconnect_opts(ReconnectOptions::Always(10));
 
-    let (mut client, receiver) = MqttClient::start(mqtt_opts);
+    let mut client = MqttClient::start(mqtt_opts);
 
     for i in 0..100 {
         client.publish("hello/world", QoS::AtLeastOnce, vec![1, 2, 3]);
