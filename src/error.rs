@@ -3,6 +3,8 @@
 error_chain! {
     foreign_links {
         Io(::std::io::Error);
+        Mqtt3(::mqtt3::Error);
+        SyncMpsc(::std::sync::mpsc::TryRecvError);
     }
     errors {
         InvalidState {

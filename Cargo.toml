@@ -9,11 +9,9 @@ license = "Unlicense/MIT"
 keywords = ["mqtt", "iot", "async", "tokio", "futures"]
 
 [dependencies]
-#futures = "*"
-#tokio-core = "0.1"
-#tokio-io = "0.1"
-#tokio-timer = "0.1"
 bytes = "0.4"
+mio = "0.6"
+mio-more = "0.1"
 mqtt3 = { git = "https://github.com/tekjar/mqtt3" }
 chrono = "0.4"
 jsonwebtoken = "3"

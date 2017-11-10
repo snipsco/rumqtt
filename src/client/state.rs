@@ -15,7 +15,7 @@ use SecurityOptions;
 use error::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MqttConnectionStatus {
+pub enum MqttConnectionStatus {
     Handshake,
     Connected,
     Disconnected,
@@ -68,8 +68,16 @@ impl MqttState {
         }
     }
 
+    pub fn opts(&self) -> &MqttOptions {
+        &self.opts
+    }
+
     pub fn initial_connect(&self) -> bool {
         self.initial_connect
+    }
+
+    pub fn status(&self) -> MqttConnectionStatus {
+        self.connection_status
     }
 
     pub fn handle_outgoing_connect(&mut self) -> mqtt3::Connect {
@@ -158,15 +166,22 @@ impl MqttState {
 
     // return a tuple. tuple.0 is supposed to be send to user through 'notify_tx' while tuple.1
     // should be sent back on network as ack
-    pub fn handle_incoming_publish(&mut self, publish: mqtt3::Publish) -> (Option<mqtt3::Publish>, Option<mqtt3::Packet>) {
+    pub fn handle_incoming_publish(&mut self, publish: mqtt3::Publish) -> Result<(Option<mqtt3::Publish>, Option<mqtt3::Packet>)> {
         let pkid = publish.pid;
         let qos = publish.qos;
 
-        match qos {
+        let concrete = ::mqtt3::TopicPath::from_str(&publish.topic_name)?;
+        for sub in &self.subscriptions {
+            if sub.topic_path.is_match(&concrete) {
+                (sub.callback)(&publish);
+            }
+        }
+
+        Ok(match qos {
             mqtt3::QoS::AtMostOnce => (Some(publish), None),
             mqtt3::QoS::AtLeastOnce => (Some(publish), Some(mqtt3::Packet::Puback(pkid.unwrap()))),
             mqtt3::QoS::ExactlyOnce => unimplemented!()
-        }
+        })
     }
 
     // reset the last control packet received time
@@ -221,8 +236,10 @@ impl MqttState {
         self.await_pingresp = false;
     }
 
-    pub fn handle_outgoing_subscribe(&mut self, topics: Vec<mqtt3::SubscribeTopic>) -> Result<mqtt3::Subscribe> {
+    pub fn handle_outgoing_subscribe(&mut self, subs: Vec<::Subscription>) -> Result<mqtt3::Subscribe> {
         let pkid = self.next_pkid();
+        let topics = subs.iter().map(|s| s.subscribe_topic.clone()).collect();
+        self.subscriptions.extend(subs);
 
         if self.connection_status == MqttConnectionStatus::Connected {
             self.last_flush = Instant::now();
@@ -230,7 +247,7 @@ impl MqttState {
 
             Ok(mqtt3::Subscribe {
                 pid: pkid,
-                topics: topics,
+                topics
             })
         } else {
             error!("State = {:?}. Shouldn't subscribe in this state", self.connection_status);
@@ -239,13 +256,12 @@ impl MqttState {
     }
 
 
-    // pub fn handle_incoming_suback(&mut self, ack: Suback) -> Result<()> {
-    //     if ack.return_codes.iter().any(|v| *v == SubscribeReturnCodes::Failure) {
-    //         Err(SubackError::Rejected)
-    //     } else {
-    //         Ok(())
-    //     }
-    // }
+    pub fn handle_incoming_suback(&mut self, ack: mqtt3::Suback) -> Result<()> {
+        if ack.return_codes.iter().any(|v| *v == ::mqtt3::SubscribeReturnCodes::Failure) {
+            Err(format!("rejected subscription"))?
+        };
+        Ok(())
+    }
 
     pub fn handle_disconnect(&mut self) {
         self.await_pingresp = false;

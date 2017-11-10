@@ -16,7 +16,8 @@ fn main() {
 
     client.subscribe_object(rumqtt::Subscription {
         id: Some("sub".into()),
-        topic: ::mqtt3::SubscribeTopic {
+        topic_path: "hello/world".into(),
+        subscribe_topic: ::mqtt3::SubscribeTopic {
             topic_path: "hello/world".into(),
             qos: QoS::AtLeastOnce
         },

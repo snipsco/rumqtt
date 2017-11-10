@@ -1,8 +1,5 @@
-
-extern crate futures;
-extern crate tokio_core;
-extern crate tokio_io;
-extern crate tokio_timer;
+extern crate mio;
+extern crate mio_more;
 extern crate mqtt3;
 extern crate bytes;
 extern crate chrono;
@@ -14,17 +11,17 @@ extern crate error_chain;
 #[macro_use]
 extern crate log;
 
-mod codec;
 mod packet;
 mod mqttopts;
 mod client;
 mod error;
 
-pub type SubscriptionCallback = Box<Fn(::mqtt3::Publish) + Send>;
+pub type SubscriptionCallback = Box<Fn(&::mqtt3::Publish) + Send>;
 
 pub struct Subscription {
     pub id: Option<String>,
-    pub topic: mqtt3::SubscribeTopic,
+    pub topic_path: mqtt3::TopicPath,
+    pub subscribe_topic: mqtt3::SubscribeTopic,
     pub callback: SubscriptionCallback,
 }
 
@@ -37,7 +34,7 @@ pub struct Publish {
 
 impl ::std::fmt::Debug for Subscription {
     fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> Result<(), ::std::fmt::Error> {
-        let topic = format!("{:?}", self.topic);
+        let topic = format!("{:?}", self.topic_path);
         write!(fmt, "Subscription({:?}, {:?})", self.id.as_ref().unwrap_or(&topic), &topic)
     }
 }

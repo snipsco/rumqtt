@@ -1,13 +1,11 @@
 mod state;
 mod connection;
 
-use futures::Sink;
-use futures::sink::Wait;
-use futures::sync::mpsc::{self, Sender};
-
 use MqttOptions;
 
 use error::*;
+
+use mio_more::channel::*;
 
 #[derive(Debug)]
 pub enum Command {
@@ -18,7 +16,7 @@ pub enum Command {
 }
 
 pub struct MqttClient {
-    nw_request_tx: Wait<Sender<Command>>,
+    nw_request_tx: SyncSender<Command>,
 }
 
 impl MqttClient {
@@ -26,18 +24,18 @@ impl MqttClient {
     /// Returns 'Command' and handles reqests from it.
     /// Also handles network events, reconnections and retransmissions.
     pub fn start(opts: MqttOptions) -> Self {
-        let (commands_tx, commands_rx) = mpsc::channel(10);
+        let (commands_tx, commands_rx) = sync_channel(10);
 
         let nw_commands_tx = commands_tx.clone();
         // This thread handles network reads (coz they are blocking) and
         // and sends them to event loop thread to handle mqtt state.
         ::std::thread::spawn( move || {
-                connection::start(opts, nw_commands_tx, commands_rx);
+                connection::start(opts, commands_rx);
                 error!("Network Thread Stopped !!!!!!!!!");
             }
         );
 
-        let client = MqttClient { nw_request_tx: commands_tx.wait() };//, max_packet_size: max_packet_size};
+        let client = MqttClient { nw_request_tx: commands_tx };
         client
     }
 
