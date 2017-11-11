@@ -1,8 +1,5 @@
 use std::net::SocketAddr;
 use std::thread;
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::io;
 use std::time::Duration;
 
 use mqtt3;
@@ -27,7 +24,7 @@ pub fn start(opts: MqttOptions, commands_rx: Receiver<Command>) -> Result<()> {
         connection.turn().unwrap();
     }
 
-//    ::std::thread::spawn(move || loop { connection.turn().unwrap() } );
+    //    ::std::thread::spawn(move || loop { connection.turn().unwrap() } );
 
     Ok(())
 
@@ -68,13 +65,17 @@ struct ConnectionState {
     outgoing_packets_tx: Sender<mqtt3::Packet>,
     outgoing_packets_rx: Receiver<mqtt3::Packet>,
     outgoing_bytes: ::std::io::Cursor<Vec<u8>>,
-    incoming_bytes: ::std::io::Cursor<Vec<u8>>,
+    in_buffer: Vec<u8>,
+    in_read: usize,
     connection: mio::net::TcpStream,
     poll: mio::Poll,
 }
 
 impl ConnectionState {
-    fn connect( mut mqtt_state: MqttState, commands_rx: Receiver<Command>) -> Result<ConnectionState> {
+    fn connect(
+        mut mqtt_state: MqttState,
+        commands_rx: Receiver<Command>,
+    ) -> Result<ConnectionState> {
         // NOTE: make sure that dns resolution happens during reconnection to handle changes in server ip
         let addr: SocketAddr = mqtt_state.opts().broker_addr.as_str().parse().unwrap();
 
@@ -90,11 +91,22 @@ impl ConnectionState {
             outgoing_packets_tx,
             outgoing_packets_rx,
             outgoing_bytes: ::std::io::Cursor::new(vec![]),
-            incoming_bytes: ::std::io::Cursor::new(vec![]),
+            in_buffer: vec![0; 256],
+            in_read: 0,
             poll: mio::Poll::new()?,
         };
-        state.poll.register(&state.connection, SOCKET_TOKEN, ::mio::Ready::all(), ::mio::PollOpt::edge())?;
-        state.poll.register(&state.commands_rx, COMMANDS_TOKEN, ::mio::Ready::all(), ::mio::PollOpt::edge())?;
+        state.poll.register(
+            &state.connection,
+            SOCKET_TOKEN,
+            ::mio::Ready::all(),
+            ::mio::PollOpt::edge(),
+        )?;
+        state.poll.register(
+            &state.commands_rx,
+            COMMANDS_TOKEN,
+            ::mio::Ready::all(),
+            ::mio::PollOpt::edge(),
+        )?;
 
         Ok(state)
     }
@@ -108,13 +120,15 @@ impl ConnectionState {
         self.poll.poll(&mut events, None)?;
         for event in events.iter() {
             debug!("event: {:?}", event);
-            if event.token() == SOCKET_TOKEN && event.kind().is_readable() {
+            if event.token() == SOCKET_TOKEN && event.readiness().is_readable() {
                 self.turn_incoming()?;
             }
-            if self.state().status() == ::client::state::MqttConnectionStatus::Connected && event.token() == COMMANDS_TOKEN {
+            if self.state().status() == ::client::state::MqttConnectionStatus::Connected &&
+                event.token() == COMMANDS_TOKEN
+            {
                 self.turn_command()?;
             }
-            if event.token() == SOCKET_TOKEN && event.kind().is_writable() {
+            if event.token() == SOCKET_TOKEN && event.readiness().is_writable() {
                 self.turn_outgoing()?;
             }
         }
@@ -150,19 +164,14 @@ impl ConnectionState {
                 }
             }
             debug!("outgoing buffer is {}", self.outgoing_bytes.get_ref().len());
-            let mut buf = [0; 128];
-            let read = self.outgoing_bytes.read(&mut buf)?;
-            if read > 0 {
-                let pos = self.outgoing_bytes.position();
-                match self.connection.write(&buf[0..read]) {
+            if self.outgoing_bytes.get_ref().len() as u64 > self.outgoing_bytes.position() {
+                match self.connection.write(&self.outgoing_bytes.get_ref()) {
                     Ok(written) => {
                         debug!("wrote {:?}", written);
-                        self.outgoing_bytes.set_position(
-                            pos - read as u64 + written as u64,
-                        )
+                        let pos = self.outgoing_bytes.position();
+                        self.outgoing_bytes.set_position(pos + written as u64)
                     }
                     Err(ref e) if e.kind() == ::std::io::ErrorKind::WouldBlock => {
-                        self.outgoing_bytes.set_position(pos - read as u64);
                         debug!("writing to socket would block");
                         break;
                     }
@@ -176,11 +185,11 @@ impl ConnectionState {
     fn whole_packet(buf: &[u8]) -> Option<usize> {
         let mut maybe_length = 0usize;
         for i in 0..4 {
-            if i+1 > buf.len() {
-                return None
+            if i + 1 > buf.len() {
+                return None;
             }
-            let byte = buf[i+1];
-            maybe_length |= (byte as usize & 0x7F) << (7* i);
+            let byte = buf[i + 1];
+            maybe_length |= (byte as usize & 0x7F) << (7 * i);
             if byte & 0x80 == 0 {
                 maybe_length = 2 + i + maybe_length;
                 break;
@@ -195,36 +204,38 @@ impl ConnectionState {
     }
 
     fn turn_incoming(&mut self) -> Result<()> {
-        use std::io::{ Read, Write };
+        use std::io::Read;
         use mqtt3::MqttRead;
-        let mut buf = [0; 128];
         loop {
-            match self.connection.read(&mut buf) {
+            if self.in_read == self.in_buffer.len() {
+                self.in_buffer.resize(self.in_read + 128, 0);
+            }
+            match self.connection.read(&mut self.in_buffer[self.in_read..]) {
                 Err(ref e) if e.kind() == ::std::io::ErrorKind::WouldBlock => {
                     debug!("reading from socket would block");
                     break;
                 }
                 Ok(read) => {
-                    debug!("read {} from socket", read);
-                    self.incoming_bytes.write(&buf[0..read])?;
-                    while let Some(packet_size) = Self::whole_packet(self.incoming_bytes.get_ref()) {
-                        self.incoming_bytes.set_position(0);
-                        let packet = self.incoming_bytes.read_packet()?;
-                        let remaining = {
-                            let mut vec = self.incoming_bytes.get_mut();
-                            let remaining = vec.len() - packet_size;
-                            for i in 0..remaining {
-                                vec[i] = vec[i+packet_size]
-                            }
-                            vec.truncate(remaining);
-                            remaining
-                        };
-                        self.incoming_bytes.set_position(remaining as u64);
+                    self.in_read += read;
+                    let mut used = 0;
+                    while let Some(packet_size) =
+                        Self::whole_packet(&self.in_buffer[used..self.in_read])
+                    {
+                        let packet = (&self.in_buffer[used..]).read_packet()?;
+                        used += packet_size;
                         debug!("received: {:?}", packet);
                         self.handle_incoming_packet(packet)?
                     }
+                    if used > 0 {
+                        if used < self.in_read {
+                            for i in 0..(used - self.in_read) {
+                                self.in_buffer[i] = self.in_buffer[i + used]
+                            }
+                        }
+                        self.in_read -= used;
+                    }
                 }
-                Err(e) => Err(e)?
+                Err(e) => Err(e)?,
             }
         }
         Ok(())
@@ -265,22 +276,24 @@ impl ConnectionState {
                 };
                 let packet = self.mqtt_state.handle_outgoing_publish(publish)?;
                 self.send_packet(mqtt3::Packet::Publish(packet))?
-            },
+            }
             Command::Subscribe(sub) => {
-                let packet = self.mqtt_state.handle_outgoing_subscribe(vec!(sub))?;
+                let packet = self.mqtt_state.handle_outgoing_subscribe(vec![sub])?;
                 self.send_packet(mqtt3::Packet::Subscribe(packet))?
-            },
-            _ => unimplemented!()
+            }
+            _ => unimplemented!(),
         };
         Ok(())
     }
 
     fn send_packet(&mut self, packet: ::mqtt3::Packet) -> Result<()> {
-        self.outgoing_packets_tx.send(packet).map_err(|e| format!("mqtt3 internal send error: {:?}", e))?;
+        self.outgoing_packets_tx.send(packet).map_err(|e| {
+            format!("mqtt3 internal send error: {:?}", e)
+        })?;
         self.turn_outgoing()
     }
 }
-        /*
+/*
             mqtt3::Packet::Puback(ack) => {
             if let Err(e) = notifier.try_send(Packet::Puback(ack)) {
                 error!("Puback notification send failed. Error = {:?}", e);
