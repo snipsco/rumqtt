@@ -14,7 +14,9 @@ fn main() {
     let mut client = MqttClient::start(mqtt_opts).unwrap();
 
     for _ in 0..100 {
-        client.publish("hello/world", QoS::AtLeastOnce, vec![1, 2, 3]).unwrap();
+        client
+            .publish("hello/world", QoS::AtLeastOnce, vec![1, 2, 3])
+            .unwrap();
         thread::sleep(Duration::new(1, 0));
     }
 

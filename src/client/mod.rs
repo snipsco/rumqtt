@@ -3,7 +3,7 @@ mod connection;
 use std::fmt;
 use error::*;
 
-use mqtt3::{ QoS, TopicPath, ToTopicPath };
+use mqtt3::{QoS, TopicPath, ToTopicPath};
 
 use mio_more::channel::*;
 
@@ -109,14 +109,11 @@ impl<'a> SubscriptionBuilder<'a> {
             },
         }
     }
-    pub fn qos(self, qos:QoS) -> SubscriptionBuilder<'a> {
+    pub fn qos(self, qos: QoS) -> SubscriptionBuilder<'a> {
         let SubscriptionBuilder { client, it } = self;
         SubscriptionBuilder {
             client,
-            it: Subscription {
-                qos,
-                ..it
-            },
+            it: Subscription { qos, ..it },
         }
     }
     pub fn send(self) -> Result<()> {
