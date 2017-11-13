@@ -9,7 +9,7 @@ license = "Unlicense/MIT"
 keywords = ["mqtt", "iot", "async", "tokio", "futures"]
 
 [dependencies]
-bytes = "0.4"
+dns-lookup = "0.8.1"
 mio = "0.6"
 mio-more = "0.1"
 mqtt3 = { git = "https://github.com/tekjar/mqtt3" }

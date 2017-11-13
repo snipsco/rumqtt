@@ -44,7 +44,7 @@ pub struct MqttState {
     // Even so, if broker crashes, all its state will be lost (most brokers).
     // client should resubscribe it comes back up again or else the data will
     // be lost
-    subscriptions: Vec<::Subscription>,
+    subscriptions: Vec<::client::Subscription>,
 }
 
 /// Design: `MqttState` methods will just modify the state of the object
@@ -93,12 +93,31 @@ impl MqttState {
         self.connection_status = MqttConnectionStatus::Handshake;
 
         let (username, password) = match self.opts.security {
-            SecurityOptions::UsernamePassword((ref username, ref password)) => (Some(username.to_owned()), Some(password.to_owned())),
-            SecurityOptions::GcloudIotCore((_, ref key, expiry)) => (Some("unused".to_owned()), Some(gen_iotcore_password(key, expiry))),
+            SecurityOptions::UsernamePassword((ref username, ref password)) => (
+                Some(
+                    username.to_owned(),
+                ),
+                Some(
+                    password.to_owned(),
+                ),
+            ),
+            SecurityOptions::GcloudIotCore((_, ref key, expiry)) => (
+                Some("unused".to_owned()),
+                Some(gen_iotcore_password(
+                    key,
+                    expiry,
+                )),
+            ),
             _ => (None, None),
         };
 
-        packet::gen_connect_packet(self.opts.client_id.clone(), keep_alive, self.opts.clean_session, username, password)
+        packet::gen_connect_packet(
+            self.opts.client_id.clone(),
+            keep_alive,
+            self.opts.clean_session,
+            username,
+            password,
+        )
     }
 
     pub fn handle_incoming_connack(&mut self, connack: mqtt3::Connack) -> Result<()> {
@@ -127,7 +146,10 @@ impl MqttState {
 
     /// Sets next packet id if pkid is None (fresh publish) and adds it to the
     /// outgoing publish queue
-    pub fn handle_outgoing_publish(&mut self, mut publish: mqtt3::Publish) -> Result<mqtt3::Publish> {
+    pub fn handle_outgoing_publish(
+        &mut self,
+        mut publish: mqtt3::Publish,
+    ) -> Result<mqtt3::Publish> {
         let publish = match publish.qos {
             mqtt3::QoS::AtMostOnce => publish,
             mqtt3::QoS::AtLeastOnce => {
@@ -143,7 +165,7 @@ impl MqttState {
                 self.outgoing_pub.push_back(publish.clone());
                 publish
             }
-            _ => unimplemented!()
+            _ => unimplemented!(),
         };
 
         if self.connection_status == MqttConnectionStatus::Connected {
@@ -155,7 +177,10 @@ impl MqttState {
 
     }
 
-    pub fn handle_incoming_puback(&mut self, pkid: mqtt3::PacketIdentifier) -> Result<mqtt3::Publish> {
+    pub fn handle_incoming_puback(
+        &mut self,
+        pkid: mqtt3::PacketIdentifier,
+    ) -> Result<mqtt3::Publish> {
         if let Some(index) = self.outgoing_pub.iter().position(|x| x.pid == Some(pkid)) {
             Ok(self.outgoing_pub.remove(index).unwrap())
         } else {
@@ -166,7 +191,10 @@ impl MqttState {
 
     // return a tuple. tuple.0 is supposed to be send to user through 'notify_tx' while tuple.1
     // should be sent back on network as ack
-    pub fn handle_incoming_publish(&mut self, publish: mqtt3::Publish) -> Result<(Option<mqtt3::Publish>, Option<mqtt3::Packet>)> {
+    pub fn handle_incoming_publish(
+        &mut self,
+        publish: mqtt3::Publish,
+    ) -> Result<(Option<mqtt3::Publish>, Option<mqtt3::Packet>)> {
         let pkid = publish.pid;
         let qos = publish.qos;
 
@@ -180,7 +208,7 @@ impl MqttState {
         Ok(match qos {
             mqtt3::QoS::AtMostOnce => (Some(publish), None),
             mqtt3::QoS::AtLeastOnce => (Some(publish), Some(mqtt3::Packet::Puback(pkid.unwrap()))),
-            mqtt3::QoS::ExactlyOnce => unimplemented!()
+            mqtt3::QoS::ExactlyOnce => unimplemented!(),
         })
     }
 
@@ -191,7 +219,7 @@ impl MqttState {
 
     // check if pinging is required based on last flush time
     pub fn is_ping_required(&self) -> bool {
-        if let Some(keep_alive) = self.opts.keep_alive  {
+        if let Some(keep_alive) = self.opts.keep_alive {
             let keep_alive = Duration::new(f32::ceil(0.9 * f32::from(keep_alive)) as u64, 0);
             self.last_flush.elapsed() > keep_alive
         } else {
@@ -227,7 +255,10 @@ impl MqttState {
             self.await_pingresp = true;
             Ok(())
         } else {
-            error!("State = {:?}. Shouldn't ping in this state", self.connection_status);
+            error!(
+                "State = {:?}. Shouldn't ping in this state",
+                self.connection_status
+            );
             Err(ErrorKind::InvalidState.into())
         }
     }
@@ -236,28 +267,41 @@ impl MqttState {
         self.await_pingresp = false;
     }
 
-    pub fn handle_outgoing_subscribe(&mut self, subs: Vec<::Subscription>) -> Result<mqtt3::Subscribe> {
+    pub fn handle_outgoing_subscribe(
+        &mut self,
+        subs: Vec<::client::Subscription>,
+    ) -> Result<mqtt3::Subscribe> {
         let pkid = self.next_pkid();
-        let topics = subs.iter().map(|s| s.subscribe_topic.clone()).collect();
+        let topics = subs.iter()
+            .map(|s| {
+                ::mqtt3::SubscribeTopic {
+                    topic_path: s.topic_path.path.clone(),
+                    qos: s.qos,
+                }
+            })
+            .collect();
         self.subscriptions.extend(subs);
 
         if self.connection_status == MqttConnectionStatus::Connected {
             self.last_flush = Instant::now();
             self.await_pingresp = true;
 
-            Ok(mqtt3::Subscribe {
-                pid: pkid,
-                topics
-            })
+            Ok(mqtt3::Subscribe { pid: pkid, topics })
         } else {
-            error!("State = {:?}. Shouldn't subscribe in this state", self.connection_status);
+            error!(
+                "State = {:?}. Shouldn't subscribe in this state",
+                self.connection_status
+            );
             Err(ErrorKind::InvalidState.into())
         }
     }
 
 
     pub fn handle_incoming_suback(&mut self, ack: mqtt3::Suback) -> Result<()> {
-        if ack.return_codes.iter().any(|v| *v == ::mqtt3::SubscribeReturnCodes::Failure) {
+        if ack.return_codes.iter().any(|v| {
+            *v == ::mqtt3::SubscribeReturnCodes::Failure
+        })
+        {
             Err(format!("rejected subscription"))?
         };
         Ok(())
@@ -290,20 +334,27 @@ impl MqttState {
 
 // Generates a new password for mqtt client authentication
 pub fn gen_iotcore_password<P>(key: P, expiry: i64) -> String
-where P: AsRef<Path> {
+where
+    P: AsRef<Path>,
+{
     let time = Utc::now();
     let jwt_header = Header::new(Algorithm::RS256);
     let iat = time.timestamp();
-    let exp = time.checked_add_signed(chrono::Duration::minutes(expiry)).unwrap().timestamp();
+    let exp = time.checked_add_signed(chrono::Duration::minutes(expiry))
+        .unwrap()
+        .timestamp();
     let claims = Claims {
         iat: iat,
         exp: exp,
         aud: "crested-return-122311".to_string(),
     };
 
-    let mut key_file = File::open(key).expect("Unable to open private keyfile for gcloud iot core auth");
+    let mut key_file =
+        File::open(key).expect("Unable to open private keyfile for gcloud iot core auth");
     let mut key = vec![];
-    key_file.read_to_end(&mut key).expect("Unable to read private key file for gcloud iot core auth till end");
+    key_file.read_to_end(&mut key).expect(
+        "Unable to read private key file for gcloud iot core auth till end",
+    );
     encode(&jwt_header, &claims, &key).expect("encode error")
 }
 
@@ -348,7 +399,7 @@ mod test {
         assert_eq!(publish_out.unwrap().pid, None);
         // publish shouldn't added to queue
         assert_eq!(mqtt.outgoing_pub.len(), 0);
-        
+
 
         // QoS1 Publish
         let publish = Publish {
@@ -390,7 +441,7 @@ mod test {
         let err = publish_out.unwrap_err();
         match err {
             Error(ErrorKind::InvalidState, _) => {}
-            _ => panic!()
+            _ => panic!(),
         }
     }
 
@@ -413,7 +464,7 @@ mod test {
         assert_eq!(publish_out, Err(PublishError::PacketSizeLimitExceeded));
         */
     }
-/*
+    /*
     #[test]
     fn incoming_puback_should_remove_correct_publish_from_queue() {
         let mut mqtt = MqttState::new(MqttOptions::new("test-id", "127.0.0.1:1883"));
@@ -549,7 +600,7 @@ mod test {
 
         let connack = Connack {
             session_present: false,
-            code: ConnectReturnCode::Accepted
+            code: ConnectReturnCode::Accepted,
         };
 
         mqtt.handle_incoming_connack(connack);
@@ -557,7 +608,7 @@ mod test {
 
         let connack = Connack {
             session_present: false,
-            code: ConnectReturnCode::BadUsernamePassword
+            code: ConnectReturnCode::BadUsernamePassword,
         };
 
         mqtt.handle_incoming_connack(connack);
@@ -583,7 +634,7 @@ mod test {
 
         let connack = Connack {
             session_present: false,
-            code: ConnectReturnCode::Accepted
+            code: ConnectReturnCode::Accepted,
         };
 
         mqtt.handle_incoming_connack(connack).unwrap();
@@ -610,7 +661,7 @@ mod test {
 
         let connack = Connack {
             session_present: false,
-            code: ConnectReturnCode::Accepted
+            code: ConnectReturnCode::Accepted,
         };
 
         if let Ok(_) = mqtt.handle_incoming_connack(connack) {

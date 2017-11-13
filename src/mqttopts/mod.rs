@@ -13,7 +13,7 @@ pub enum SecurityOptions {
     /// ca, client cert, client key
     Tls((String, String, String)),
     /// roots.pem, private_key.der to sign jwt, expiry in seconds
-    GcloudIotCore((String, String, i64))
+    GcloudIotCore((String, String, i64)),
 }
 
 
@@ -25,7 +25,7 @@ pub struct MqttOptions {
     pub broker_addr: String,
     /// keep alive time to send pingreq to broker when the connection is idle
     pub keep_alive: Option<u16>,
-    /// clean (or) persistent session 
+    /// clean (or) persistent session
     pub clean_session: bool,
     /// client identifier
     pub client_id: String,
@@ -38,7 +38,6 @@ pub struct MqttOptions {
 }
 
 impl MqttOptions {
-    
     pub fn new<S: Into<String>>(id: S, addr: S) -> MqttOptions {
         // TODO: Validate client id. Shouldn't be empty or start with spaces
         // TODO: Validate if addr is proper address type
@@ -70,8 +69,8 @@ impl MqttOptions {
         self
     }
 
-    /// `clean_session = true` removes all the state from queues & instructs the broker 
-    /// to clean all the client state when client disconnects. 
+    /// `clean_session = true` removes all the state from queues & instructs the broker
+    /// to clean all the client state when client disconnects.
     ///
     /// When set `false`, broker will hold the client state and performs pending
     /// operations on the client when reconnection with same `client_id`

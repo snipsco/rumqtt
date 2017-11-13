@@ -2,12 +2,13 @@ use mqtt3::*;
 
 use std::sync::Arc;
 
-pub fn gen_connect_packet(client_id: String,
-                          keep_alive: u16,
-                          clean_session: bool,
-                          username: Option<String>,
-                          password: Option<String>)
-                          -> Connect {
+pub fn gen_connect_packet(
+    client_id: String,
+    keep_alive: u16,
+    clean_session: bool,
+    username: Option<String>,
+    password: Option<String>,
+) -> Connect {
     Connect {
         protocol: Protocol::MQTT(4),
         keep_alive: keep_alive,
@@ -33,13 +34,14 @@ pub fn gen_connect_packet(client_id: String,
 //     })
 // }
 
-pub fn gen_publish_packet(topic_name: String,
-                          qos: QoS,
-                          pkid: Option<PacketIdentifier>,
-                          retain: bool,
-                          dup: bool,
-                          payload: Arc<Vec<u8>>)
-                          -> Publish {
+pub fn gen_publish_packet(
+    topic_name: String,
+    qos: QoS,
+    pkid: Option<PacketIdentifier>,
+    retain: bool,
+    dup: bool,
+    payload: Arc<Vec<u8>>,
+) -> Publish {
     Publish {
         dup: dup,
         qos: qos,

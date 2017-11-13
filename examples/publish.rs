@@ -9,12 +9,12 @@ use rumqtt::{MqttOptions, ReconnectOptions, MqttClient, QoS};
 fn main() {
     loggerv::init_with_verbosity(1).unwrap();
     let mqtt_opts = MqttOptions::new("rumqtt-core", "127.0.0.1:1883")
-                                .set_reconnect_opts(ReconnectOptions::Always(10));
+        .set_reconnect_opts(ReconnectOptions::Always(10));
 
-    let mut client = MqttClient::start(mqtt_opts);
+    let mut client = MqttClient::start(mqtt_opts).unwrap();
 
-    for i in 0..100 {
-        client.publish("hello/world", QoS::AtLeastOnce, vec![1, 2, 3]);
+    for _ in 0..100 {
+        client.publish("hello/world", QoS::AtLeastOnce, vec![1, 2, 3]).unwrap();
         thread::sleep(Duration::new(1, 0));
     }
 
