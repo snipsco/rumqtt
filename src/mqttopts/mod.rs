@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 #[derive(Copy, Clone)]
 pub enum ReconnectOptions {
     Never,
@@ -29,6 +31,8 @@ pub struct MqttOptions {
     pub clean_session: bool,
     /// client identifier
     pub client_id: String,
+    /// time left for server to send a connection acknowlegment
+    pub mqtt_connection_timeout: Duration,
     /// reconnection options
     pub reconnect: ReconnectOptions,
     /// security options
@@ -46,6 +50,7 @@ impl MqttOptions {
             keep_alive: Some(10),
             clean_session: true,
             client_id: id.into(),
+            mqtt_connection_timeout: Duration::from_secs(5),
             reconnect: ReconnectOptions::AfterFirstSuccess(10),
             security: SecurityOptions::None,
             max_packet_size: 100 * 1024,

@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::time::{Duration, Instant};
 
 use mqtt3;
 use mio;
@@ -13,11 +14,7 @@ use client::Command;
 pub fn start(opts: MqttOptions, commands_rx: Receiver<Command>) -> Result<ConnectionState> {
     let mqtt_state = MqttState::new(opts);
     let mut connection = ConnectionState::connect(mqtt_state, commands_rx)?;
-    while connection.state().status() != ::client::state::MqttConnectionStatus::Connected {
-        connection.turn()?
-    }
-    //    ::std::thread::spawn(move || loop { connection.turn().unwrap() } );
-
+    connection.wait_for_connack()?;
     Ok(connection)
 
     /*
@@ -129,13 +126,25 @@ impl ConnectionState {
         Ok(state)
     }
 
+    pub fn wait_for_connack(&mut self) -> Result<()> {
+        let time_limit = Instant::now() + self.state().opts().mqtt_connection_timeout;
+        while self.state().status() != ::client::state::MqttConnectionStatus::Connected {
+            let now = Instant::now();
+            if now > time_limit {
+                Err(format!("Timeout: no connack after {:?}", self.state().opts().mqtt_connection_timeout))?
+            }
+            self.turn(Some(time_limit - now))?
+        }
+        Ok(())
+    }
+
     fn state(&self) -> &MqttState {
         &self.mqtt_state
     }
 
-    pub fn turn(&mut self) -> Result<()> {
+    pub fn turn(&mut self, timeout: Option<Duration>) -> Result<()> {
         let mut events = mio::Events::with_capacity(1024);
-        self.poll.poll(&mut events, None)?;
+        self.poll.poll(&mut events, timeout)?;
         for event in events.iter() {
             debug!("event: {:?}", event);
             if event.token() == SOCKET_TOKEN && event.readiness().is_readable() {

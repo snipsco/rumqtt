@@ -25,13 +25,13 @@ impl MqttClient {
     /// Connects to the broker and starts an event loop in a new thread.
     /// Returns 'Command' and handles reqests from it.
     /// Also handles network events, reconnections and retransmissions.
-    pub fn start(opts: MqttOptions) -> ::error::Result<Self> {
+    pub fn start(opts: MqttOptions) -> Result<Self> {
         let (commands_tx, commands_rx) = sync_channel(10);
         // This thread handles network reads (coz they are blocking) and
         // and sends them to event loop thread to handle mqtt state.
         let mut connection = connection::start(opts, commands_rx)?;
         ::std::thread::spawn(move || loop {
-            connection.turn().unwrap_or_else(|e| {
+            connection.turn(None).unwrap_or_else(|e| {
                 error!("Network Thread Stopped: {:?}", e)
             });
         });
