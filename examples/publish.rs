@@ -4,7 +4,7 @@ extern crate loggerv;
 use std::thread;
 use std::time::Duration;
 
-use rumqtt::{MqttOptions, ReconnectOptions, MqttClient, QoS};
+use rumqtt::{MqttOptions, ReconnectOptions, MqttClient};
 
 fn main() {
     loggerv::init_with_verbosity(1).unwrap();
@@ -15,7 +15,10 @@ fn main() {
 
     for _ in 0..100 {
         client
-            .publish("hello/world", QoS::AtLeastOnce, vec![1, 2, 3])
+            .publish("hello/world")
+            .unwrap()
+            .payload(vec![1, 2, 3])
+            .send()
             .unwrap();
         thread::sleep(Duration::new(1, 0));
     }

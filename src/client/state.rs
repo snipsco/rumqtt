@@ -84,9 +84,7 @@ impl MqttState {
         let keep_alive = if let Some(keep_alive) = self.opts.keep_alive {
             keep_alive
         } else {
-            // rumqtt sets keep alive time to 3 minutes if user sets it to none.
-            // (get consensus)
-            180
+            0
         };
 
         self.opts.keep_alive = Some(keep_alive);
@@ -219,6 +217,9 @@ impl MqttState {
 
     // check if pinging is required based on last flush time
     pub fn is_ping_required(&self) -> bool {
+        if self.connection_status != MqttConnectionStatus::Connected {
+            return false;
+        }
         if let Some(keep_alive) = self.opts.keep_alive {
             let keep_alive = Duration::new(f32::ceil(0.9 * f32::from(keep_alive)) as u64, 0);
             self.last_flush.elapsed() > keep_alive

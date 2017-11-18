@@ -122,7 +122,6 @@ impl ConnectionState {
             mio::Ready::readable(),
             mio::PollOpt::edge(),
         )?;
-
         Ok(state)
     }
 
@@ -131,7 +130,10 @@ impl ConnectionState {
         while self.state().status() != ::client::state::MqttConnectionStatus::Connected {
             let now = Instant::now();
             if now > time_limit {
-                Err(format!("Timeout: no connack after {:?}", self.state().opts().mqtt_connection_timeout))?
+                Err(format!(
+                    "Timeout: no connack after {:?}",
+                    self.state().opts().mqtt_connection_timeout
+                ))?
             }
             self.turn(Some(time_limit - now))?
         }
@@ -144,7 +146,10 @@ impl ConnectionState {
 
     pub fn turn(&mut self, timeout: Option<Duration>) -> Result<()> {
         let mut events = mio::Events::with_capacity(1024);
-        self.poll.poll(&mut events, timeout)?;
+        self.poll.poll(
+            &mut events,
+            timeout.or(Some(Duration::from_secs(1))),
+        )?;
         for event in events.iter() {
             debug!("event: {:?}", event);
             if event.token() == SOCKET_TOKEN && event.readiness().is_readable() {
@@ -159,6 +164,7 @@ impl ConnectionState {
                 self.turn_outgoing()?;
             }
         }
+        self.consider_ping()?;
         Ok(())
     }
 
@@ -237,11 +243,14 @@ impl ConnectionState {
             if self.in_read == self.in_buffer.len() {
                 self.in_buffer.resize(self.in_read + 128, 0);
             }
-            match self.connection.read(&mut self.in_buffer[self.in_read..]) {
+            let read = self.connection.read(&mut self.in_buffer[self.in_read..]);
+            debug!("read: {:?}", read);
+            match read {
                 Err(ref e) if e.kind() == ::std::io::ErrorKind::WouldBlock => {
                     debug!("reading from socket would block");
                     break;
                 }
+                Ok(0) => Err("disconnected")?,
                 Ok(read) => {
                     self.in_read += read;
                     let mut used = 0;
@@ -284,7 +293,18 @@ impl ConnectionState {
             mqtt3::Packet::Puback(ack) => {
                 self.mqtt_state.handle_incoming_puback(ack)?;
             }
+            mqtt3::Packet::Pingresp => {
+                self.mqtt_state.handle_incoming_pingresp();
+            }
             _ => unimplemented!(),
+        }
+        Ok(())
+    }
+
+    fn consider_ping(&mut self) -> Result<()> {
+        if self.state().is_ping_required() {
+            self.mqtt_state.handle_outgoing_ping()?;
+            self.send_packet(mqtt3::Packet::Pingreq)?;
         }
         Ok(())
     }
@@ -293,11 +313,11 @@ impl ConnectionState {
         match command {
             Command::Publish(publish) => {
                 let publish = mqtt3::Publish {
-                    topic_name: publish.topic,
+                    topic_name: publish.topic.path(),
                     dup: false,
                     pid: None,
                     qos: publish.qos,
-                    retain: false,
+                    retain: publish.retain,
                     payload: ::std::sync::Arc::new(publish.payload),
                 };
                 let packet = self.mqtt_state.handle_outgoing_publish(publish)?;
@@ -307,7 +327,9 @@ impl ConnectionState {
                 let packet = self.mqtt_state.handle_outgoing_subscribe(vec![sub])?;
                 self.send_packet(mqtt3::Packet::Subscribe(packet))?
             }
-            Command::Alive(tx) => { let _ = tx.send(()); }
+            Command::Alive(tx) => {
+                let _ = tx.send(());
+            }
             Command::Connect => unimplemented!(),
             Command::Disconnect => unimplemented!(),
         };

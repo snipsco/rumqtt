@@ -5,7 +5,7 @@ extern crate loggerv;
 extern crate rumqtt;
 extern crate mqtt3;
 
-use std::io::{ Read, Write };
+use std::io::{Read, Write};
 use std::thread;
 use std::time::Duration;
 use std::sync::Arc;
@@ -30,12 +30,11 @@ fn inital_tcp_connect_failure() {
     assert!(MqttClient::start(client_options).is_err());
 }
 
-fn spawn_silent_server(port:u16) {
+fn spawn_silent_server(port: u16) {
     let server = ::std::net::TcpListener::bind(("localhost", port)).unwrap();
     ::std::thread::spawn(move || {
         let mut stream = server.incoming().next().unwrap().unwrap().bytes();
-        while let Some(_) = stream.next() {
-        }
+        while let Some(_) = stream.next() {}
     });
 }
 
@@ -51,12 +50,12 @@ fn initial_mqtt_connect_timeout_failure() {
     assert!(result.err().unwrap().description().contains("connack"));
 }
 
-fn spawn_server_after(port:u16, delay:Duration) {
+fn spawn_server_after(port: u16, delay: Duration) {
     ::std::thread::spawn(move || {
         ::std::thread::sleep(delay);
         let server = ::std::net::TcpListener::bind(("localhost", port)).unwrap();
         let mut stream = server.incoming().next().unwrap().unwrap();
-        let connect_packet = stream.read_exact(&mut vec!(0, 16)); // connect is 16 bytes long
+        let connect_packet = stream.read_exact(&mut vec![0, 16]); // connect is 16 bytes long
         stream.write_all(&[32, 2, 0, 0]);
     });
 }
@@ -67,7 +66,7 @@ fn spawn_server_after(port:u16, delay:Duration) {
 fn initial_mqtt_reconnect() {
     // loggerv::init_with_level(log::LogLevel::Debug);
     spawn_server_after(19991, Duration::from_secs(2));
-    let client_options = MqttOptions::new("me", "localhost:1991")
+    let client_options = MqttOptions::new("reco", "localhost:1991")
         .set_reconnect_opts(ReconnectOptions::Always(3));
 
     // Connects to a broker and returns a `request`
@@ -79,7 +78,7 @@ fn initial_mqtt_reconnect() {
 // during initial mqtt connect.
 #[test]
 fn inital_mqtt_connect_failure() {
-    let client_options = MqttOptions::new("me", "broken.mosquitto.org:8883")
+    let client_options = MqttOptions::new("connect", "broken.mosquitto.org:8883")
 //        .set_reconnect(5);
         ;
 
@@ -91,7 +90,7 @@ fn inital_mqtt_connect_failure() {
 #[test]
 fn basic_publishes_and_subscribes() {
     // loggerv::init_with_level(log::LogLevel::Debug);
-    let client_options = MqttOptions::new("me", MOSQUITTO_ADDR);
+    let client_options = MqttOptions::new("pubsub", MOSQUITTO_ADDR);
     let count = Arc::new(AtomicUsize::new(0));
     let final_count = count.clone();
     let count = count.clone();
@@ -104,18 +103,30 @@ fn basic_publishes_and_subscribes() {
             Box::new(move |_| { count.fetch_add(1, Ordering::SeqCst); }),
         )
         .unwrap()
-        .send().unwrap();
+        .send()
+        .unwrap();
     info!("subbed");
 
     let payload = format!("hello rust");
     request
-        .publish("test/basic", QoS::AtMostOnce, payload.clone().into_bytes())
+        .publish("test/basic")
+        .unwrap()
+        .payload(payload.clone().into_bytes())
+        .send()
         .unwrap();
     request
-        .publish("test/basic", QoS::AtLeastOnce, payload.clone().into_bytes())
+        .publish("test/basic")
+        .unwrap()
+        .qos(QoS::AtLeastOnce)
+        .payload(payload.clone().into_bytes())
+        .send()
         .unwrap();
     request
-        .publish("test/basic", QoS::AtLeastOnce, payload.clone().into_bytes())
+        .publish("test/basic")
+        .unwrap()
+        .qos(QoS::AtLeastOnce)
+        .payload(payload.clone().into_bytes())
+        .send()
         .unwrap();
     /*
     request.publish("test/basic", QoS::ExactlyOnce, payload.clone().into_bytes())
@@ -128,10 +139,12 @@ fn basic_publishes_and_subscribes() {
 
 #[test]
 fn alive() {
-    let client_options = MqttOptions::new("me", MOSQUITTO_ADDR);
+    // loggerv::init_with_level(log::LogLevel::Debug);
+    let client_options = MqttOptions::new("keep-alive", MOSQUITTO_ADDR).set_keep_alive(5);
     let mut request = MqttClient::start(client_options).expect("Coudn't start");
-
-    assert!(request.alive().is_ok())
+    assert!(request.alive().is_ok());
+    std::thread::sleep(std::time::Duration::from_secs(10));
+    assert!(request.alive().is_ok());
 }
 
 
@@ -246,62 +259,44 @@ fn will() {
 }
 */
 
-/*
 
 /// Broker should retain published message on a topic and
 /// INSTANTLY publish them to new subscritions
 #[test]
 fn retained_messages() {
-    // env_logger::init().unwrap();
-    let client_options = MqttOptions::new()
-        .set_reconnect(3)
-        .set_client_id("test-retain-client")
-        .set_clean_session(true)
-        .set_broker(BROKER_ADDRESS);
-    // NOTE: QoS 2 messages aren't being retained in "test.mosquitto.org"
-    // broker
+    let client_options = MqttOptions::new("retain", MOSQUITTO_ADDR);
+    let mut client = MqttClient::start(client_options).expect("Coudn't start");
+    let (tx,rx) = std::sync::mpsc::channel();
 
-    let count = Arc::new(AtomicUsize::new(0));
-    let final_count = count.clone();
-    let count = count.clone();
-
-    let cb = move |m: Message| {
-        count.fetch_add(1, Ordering::SeqCst);
-    };
-
-    let callback = MqttCallback::new().on_message(cb);
-
-    let mut client = MqttClient::start(client_options, Some(callback)).expect("Coudn't start");
-
-    // publish first
-    let payload = format!("hello rust");
-    client.retained_publish("test/0/retain", QoS::Level0, payload.clone().into_bytes())
-        .unwrap();
-    client.retained_publish("test/1/retain", QoS::Level1, payload.clone().into_bytes())
-        .unwrap();
-    client.retained_publish("test/2/retain", QoS::Level2, payload.clone().into_bytes())
+    client
+        .publish("test/retain")
+        .unwrap()
+        .payload(b"hello rust".to_vec())
+        .retain(true)
+        .send()
         .unwrap();
 
-    // NOTE: Request notifications are on different mio channels. We don't
-    // know
-    // about priority. Wait till all the publishes are recived by connection
-    // thread
-    // before disconnection
-    thread::sleep(Duration::new(1, 0));
-    client.disconnect().unwrap();
-
-    // wait for client to reconnect
-    thread::sleep(Duration::new(10, 0));
-
-    // subscribe to the topic which broker has retained
-    let topics = vec![("test/+/retain", QoS::Level0)];
-    client.subscribe(topics).expect("Subcription failure");
-
-    // wait for messages
     thread::sleep(Duration::new(3, 0));
-    assert!(3 == final_count.load(Ordering::SeqCst));
-    // TODO: Clear retained messages
+
+    let client_options = MqttOptions::new("retain_2", MOSQUITTO_ADDR);
+    let mut client_2 = MqttClient::start(client_options).expect("Coudn't start");
+    client_2
+        .subscribe(
+            "test/retain",
+            Box::new(move |msg| { tx.send(msg.payload.clone()).unwrap(); })
+        )
+        .unwrap()
+        .send()
+        .unwrap();
+
+    thread::sleep(Duration::new(3, 0));
+
+    let result = rx.recv();
+    println!("result: {:?}", result);
+    assert_eq!(*result.unwrap(), b"hello rust");
 }
+
+/*
 
 // TODO: Add functionality to handle noreconnect option. This test case is
 // panicking
