@@ -70,9 +70,11 @@ impl ConnectionState {
             let (host, port) = if broker.contains(":") {
                 let mut tokens = mqtt_state.opts().broker_addr.split(":");
                 let host = tokens.next().unwrap();
-                let port = tokens.next().unwrap().parse().map_err(
-                    |_| "Failed to parse port number",
-                )?;
+                let port = tokens
+                    .next()
+                    .unwrap()
+                    .parse()
+                    .map_err(|_| "Failed to parse port number")?;
                 (host, Some(port))
             } else {
                 (&**broker, None)
@@ -146,17 +148,15 @@ impl ConnectionState {
 
     pub fn turn(&mut self, timeout: Option<Duration>) -> Result<()> {
         let mut events = mio::Events::with_capacity(1024);
-        self.poll.poll(
-            &mut events,
-            timeout.or(Some(Duration::from_secs(1))),
-        )?;
+        self.poll
+            .poll(&mut events, timeout.or(Some(Duration::from_secs(1))))?;
         for event in events.iter() {
             debug!("event: {:?}", event);
             if event.token() == SOCKET_TOKEN && event.readiness().is_readable() {
                 self.turn_incoming()?;
             }
-            if self.state().status() == ::client::state::MqttConnectionStatus::Connected &&
-                event.token() == COMMANDS_TOKEN
+            if self.state().status() == ::client::state::MqttConnectionStatus::Connected
+                && event.token() == COMMANDS_TOKEN
             {
                 self.turn_command()?;
             }
@@ -337,9 +337,9 @@ impl ConnectionState {
     }
 
     fn send_packet(&mut self, packet: ::mqtt3::Packet) -> Result<()> {
-        self.out_packets_tx.send(packet).map_err(|e| {
-            format!("mqtt3 internal send error: {:?}", e)
-        })?;
+        self.out_packets_tx
+            .send(packet)
+            .map_err(|e| format!("mqtt3 internal send error: {:?}", e))?;
         self.turn_outgoing()
     }
 }

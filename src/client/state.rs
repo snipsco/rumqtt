@@ -4,7 +4,7 @@ use std::fs::File;
 use std::path::Path;
 use std::io::Read;
 
-use jwt::{encode, Header, Algorithm};
+use jwt::{encode, Algorithm, Header};
 use chrono::{self, Utc};
 
 //use error::{PingError, ConnectError, PublishError, PubackError, SubscribeError};
@@ -91,20 +91,12 @@ impl MqttState {
         self.connection_status = MqttConnectionStatus::Handshake;
 
         let (username, password) = match self.opts.security {
-            SecurityOptions::UsernamePassword((ref username, ref password)) => (
-                Some(
-                    username.to_owned(),
-                ),
-                Some(
-                    password.to_owned(),
-                ),
-            ),
+            SecurityOptions::UsernamePassword((ref username, ref password)) => {
+                (Some(username.to_owned()), Some(password.to_owned()))
+            }
             SecurityOptions::GcloudIotCore((_, ref key, expiry)) => (
                 Some("unused".to_owned()),
-                Some(gen_iotcore_password(
-                    key,
-                    expiry,
-                )),
+                Some(gen_iotcore_password(key, expiry)),
             ),
             _ => (None, None),
         };
@@ -172,7 +164,6 @@ impl MqttState {
         } else {
             Err(ErrorKind::InvalidState.into())
         }
-
     }
 
     pub fn handle_incoming_puback(
@@ -299,9 +290,9 @@ impl MqttState {
 
 
     pub fn handle_incoming_suback(&mut self, ack: mqtt3::Suback) -> Result<()> {
-        if ack.return_codes.iter().any(|v| {
-            *v == ::mqtt3::SubscribeReturnCodes::Failure
-        })
+        if ack.return_codes
+            .iter()
+            .any(|v| *v == ::mqtt3::SubscribeReturnCodes::Failure)
         {
             Err(format!("rejected subscription"))?
         };
@@ -353,9 +344,9 @@ where
     let mut key_file =
         File::open(key).expect("Unable to open private keyfile for gcloud iot core auth");
     let mut key = vec![];
-    key_file.read_to_end(&mut key).expect(
-        "Unable to read private key file for gcloud iot core auth till end",
-    );
+    key_file
+        .read_to_end(&mut key)
+        .expect("Unable to read private key file for gcloud iot core auth till end");
     encode(&jwt_header, &claims, &key).expect("encode error")
 }
 
@@ -365,7 +356,7 @@ mod test {
     use std::thread;
     use std::time::Duration;
 
-    use super::{MqttState, MqttConnectionStatus};
+    use super::{MqttConnectionStatus, MqttState};
     use mqtt3::*;
     use mqttopts::MqttOptions;
     use error::*;

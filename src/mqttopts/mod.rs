@@ -106,7 +106,7 @@ impl MqttOptions {
 
     /// Set MQTT last will
     /// This message will be emit by the broker on disconnect.
-    pub fn set_last_will(mut self, will:Option<::mqtt3::LastWill>) -> Self {
+    pub fn set_last_will(mut self, will: Option<::mqtt3::LastWill>) -> Self {
         self.last_will = will;
         self
     }

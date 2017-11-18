@@ -2,8 +2,8 @@
 #[macro_use]
 extern crate log;
 extern crate loggerv;
-extern crate rumqtt;
 extern crate mqtt3;
+extern crate rumqtt;
 
 use std::io::{Read, Write};
 use std::thread;
@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 //use rumqtt::{MqttOptions, MqttClient, QoS, MqttCallback, Message};
-use rumqtt::{MqttOptions, MqttClient, QoS, ReconnectOptions};
+use rumqtt::{MqttClient, MqttOptions, QoS, ReconnectOptions};
 
 const BROKER_ADDRESS: &'static str = "dev-mqtt-broker.atherengineering.in:1883";
 // const MOSQUITTO_ADDR: &'static str = "test.mosquitto.org:1883";
@@ -66,8 +66,8 @@ fn spawn_server_after(port: u16, delay: Duration) {
 fn initial_mqtt_reconnect() {
     // loggerv::init_with_level(log::LogLevel::Debug);
     spawn_server_after(19991, Duration::from_secs(2));
-    let client_options = MqttOptions::new("reco", "localhost:1991")
-        .set_reconnect_opts(ReconnectOptions::Always(3));
+    let client_options =
+        MqttOptions::new("reco", "localhost:1991").set_reconnect_opts(ReconnectOptions::Always(3));
 
     // Connects to a broker and returns a `request`
     let result = MqttClient::start(client_options);
@@ -100,7 +100,9 @@ fn basic_publishes_and_subscribes() {
     request
         .subscribe(
             "test/basic",
-            Box::new(move |_| { count.fetch_add(1, Ordering::SeqCst); }),
+            Box::new(move |_| {
+                count.fetch_add(1, Ordering::SeqCst);
+            }),
         )
         .unwrap()
         .send()
@@ -266,7 +268,7 @@ fn will() {
 fn retained_messages() {
     let client_options = MqttOptions::new("retain", MOSQUITTO_ADDR);
     let mut client = MqttClient::start(client_options).expect("Coudn't start");
-    let (tx,rx) = std::sync::mpsc::channel();
+    let (tx, rx) = std::sync::mpsc::channel();
 
     client
         .publish("test/retain")
@@ -283,7 +285,9 @@ fn retained_messages() {
     client_2
         .subscribe(
             "test/retain",
-            Box::new(move |msg| { tx.send(msg.payload.clone()).unwrap(); })
+            Box::new(move |msg| {
+                tx.send(msg.payload.clone()).unwrap();
+            }),
         )
         .unwrap()
         .send()

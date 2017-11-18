@@ -1,10 +1,10 @@
-extern crate rumqtt;
 extern crate loggerv;
+extern crate rumqtt;
 
 use std::thread;
 use std::time::Duration;
 
-use rumqtt::{MqttOptions, ReconnectOptions, MqttClient};
+use rumqtt::{MqttClient, MqttOptions, ReconnectOptions};
 
 fn main() {
     loggerv::init_with_verbosity(1).unwrap();

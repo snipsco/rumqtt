@@ -3,7 +3,7 @@ mod connection;
 use std::fmt;
 use error::*;
 
-use mqtt3::{QoS, TopicPath, ToTopicPath};
+use mqtt3::{QoS, ToTopicPath, TopicPath};
 
 use mio_more::channel::*;
 
@@ -11,10 +11,7 @@ use MqttOptions;
 
 #[derive(DebugStub)]
 pub enum Command {
-    Alive(
-        #[debug_stub = ""]
-        ::std::sync::mpsc::Sender<()>
-    ),
+    Alive(#[debug_stub = ""] ::std::sync::mpsc::Sender<()>),
     Subscribe(Subscription),
     Publish(Publish),
     Connect,
@@ -34,17 +31,21 @@ impl MqttClient {
         // This thread handles network reads (coz they are blocking) and
         // and sends them to event loop thread to handle mqtt state.
         let mut connection = connection::start(opts, commands_rx)?;
-        ::std::thread::spawn(move || loop {
-            match connection.turn(None) {
-                Ok(_) => {}
-                Err(e) => {
-                    error!("Network Thread Stopped: {:?}", e);
-                    break;
+        ::std::thread::spawn(move || {
+            loop {
+                match connection.turn(None) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!("Network Thread Stopped: {:?}", e);
+                        break;
+                    }
                 }
             }
         });
 
-        Ok(MqttClient { nw_request_tx: commands_tx })
+        Ok(MqttClient {
+            nw_request_tx: commands_tx,
+        })
     }
 
     pub fn subscribe<T: ToTopicPath>(
@@ -91,9 +92,9 @@ impl MqttClient {
     }
 
     fn send_command(&mut self, command: Command) -> Result<()> {
-        self.nw_request_tx.send(command).map_err(
-            |_| "failed to send mqtt command to client thread",
-        )?;
+        self.nw_request_tx
+            .send(command)
+            .map_err(|_| "failed to send mqtt command to client thread")?;
         Ok(())
     }
 }
