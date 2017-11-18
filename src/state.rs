@@ -7,9 +7,7 @@ use std::io::Read;
 use jwt::{encode, Algorithm, Header};
 use chrono::{self, Utc};
 
-//use error::{PingError, ConnectError, PublishError, PubackError, SubscribeError};
 use mqtt3;
-use packet;
 use MqttOptions;
 use SecurityOptions;
 use error::*;
@@ -33,7 +31,6 @@ pub struct MqttState {
 
     // --------  State  ----------
     connection_status: MqttConnectionStatus,
-    initial_connect: bool,
     await_pingresp: bool,
     last_flush: Instant,
     last_pkid: mqtt3::PacketIdentifier,
@@ -59,7 +56,6 @@ impl MqttState {
         MqttState {
             opts: opts,
             connection_status: MqttConnectionStatus::Disconnected,
-            initial_connect: true,
             await_pingresp: false,
             last_flush: Instant::now(),
             last_pkid: mqtt3::PacketIdentifier(0),
@@ -70,10 +66,6 @@ impl MqttState {
 
     pub fn opts(&self) -> &MqttOptions {
         &self.opts
-    }
-
-    pub fn initial_connect(&self) -> bool {
-        self.initial_connect
     }
 
     pub fn status(&self) -> MqttConnectionStatus {
@@ -100,14 +92,15 @@ impl MqttState {
             ),
             _ => (None, None),
         };
-
-        packet::gen_connect_packet(
-            self.opts.client_id.clone(),
+        mqtt3::Connect {
+            protocol: mqtt3::Protocol::MQTT(4),
             keep_alive,
-            self.opts.clean_session,
+            client_id: self.opts.client_id.clone(),
+            clean_session: self.opts.clean_session,
+            last_will: None,
             username,
             password,
-        )
+        }
     }
 
     pub fn handle_incoming_connack(&mut self, connack: mqtt3::Connack) -> Result<()> {
@@ -117,7 +110,6 @@ impl MqttState {
             Err(format!("Connack error {:?}", response))?
         } else {
             self.connection_status = MqttConnectionStatus::Connected;
-            self.initial_connect = false;
             if self.opts.clean_session {
                 self.clear_session_info();
             }

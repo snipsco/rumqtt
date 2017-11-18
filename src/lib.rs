@@ -13,12 +13,27 @@ extern crate mqtt3;
 #[macro_use]
 extern crate serde_derive;
 
-mod packet;
-mod mqttopts;
-mod client;
-mod error;
+#[allow(unused_doc_comment)]
+mod error {
+    error_chain! {
+        foreign_links {
+            Io(::std::io::Error);
+            Mqtt3(::mqtt3::Error);
+            SyncMpsc(::std::sync::mpsc::TryRecvError);
+        }
+        errors {
+            InvalidState {
+                description("invalid state")
+                display("invalid state")}
+            }
+    }
+}
 
-// expose to other crates
-pub use mqttopts::{MqttOptions, ReconnectOptions, SecurityOptions};
+mod client;
+mod connection;
+mod options;
+mod state;
+
+pub use options::{MqttOptions, ReconnectOptions, SecurityOptions};
 pub use client::MqttClient;
 pub use mqtt3::{Message, Publish, QoS, ToTopicPath, TopicPath};

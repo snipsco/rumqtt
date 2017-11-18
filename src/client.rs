@@ -1,6 +1,3 @@
-mod state;
-mod connection;
-use std::fmt;
 use error::*;
 
 use mqtt3::{QoS, ToTopicPath, TopicPath};
@@ -30,7 +27,7 @@ impl MqttClient {
         let (commands_tx, commands_rx) = sync_channel(10);
         // This thread handles network reads (coz they are blocking) and
         // and sends them to event loop thread to handle mqtt state.
-        let mut connection = connection::start(opts, commands_rx)?;
+        let mut connection = ::connection::start(opts, commands_rx)?;
         ::std::thread::spawn(move || {
             loop {
                 match connection.turn(None) {
@@ -75,15 +72,6 @@ impl MqttClient {
             },
         })
     }
-    /*
-    pub fn publish(&mut self, topic: &str, qos: ::mqtt3::QoS, payload: Vec<u8>) -> Result<()> {
-        self.send_command(Command::Publish(Publish {
-            topic: topic.into(),
-            qos,
-            payload,
-        }))
-    }
-    */
 
     pub fn alive(&mut self) -> Result<()> {
         let (tx, rx) = ::std::sync::mpsc::channel();
@@ -101,23 +89,12 @@ impl MqttClient {
 
 pub type SubscriptionCallback = Box<Fn(&::mqtt3::Publish) + Send>;
 
+#[derive(DebugStub)]
 pub struct Subscription {
-    id: Option<String>,
-    topic_path: TopicPath,
-    qos: ::mqtt3::QoS,
-    callback: SubscriptionCallback,
-}
-
-impl fmt::Debug for Subscription {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        let topic = format!("{:?}", self.topic_path);
-        write!(
-            fmt,
-            "Subscription({:?}, {:?})",
-            self.id.as_ref().unwrap_or(&topic),
-            &topic
-        )
-    }
+    pub id: Option<String>,
+    pub topic_path: TopicPath,
+    pub qos: ::mqtt3::QoS,
+    #[debug_stub = ""] pub callback: SubscriptionCallback,
 }
 
 #[must_use]
