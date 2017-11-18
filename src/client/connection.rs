@@ -290,7 +290,6 @@ impl ConnectionState {
     }
 
     fn handle_command(&mut self, command: Command) -> Result<()> {
-        debug!("handle {:?}", command);
         match command {
             Command::Publish(publish) => {
                 let publish = mqtt3::Publish {
@@ -308,7 +307,9 @@ impl ConnectionState {
                 let packet = self.mqtt_state.handle_outgoing_subscribe(vec![sub])?;
                 self.send_packet(mqtt3::Packet::Subscribe(packet))?
             }
-            _ => unimplemented!(),
+            Command::Alive(tx) => { let _ = tx.send(()); }
+            Command::Connect => unimplemented!(),
+            Command::Disconnect => unimplemented!(),
         };
         Ok(())
     }

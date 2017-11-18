@@ -9,8 +9,9 @@ use mio_more::channel::*;
 
 use MqttOptions;
 
-#[derive(Debug)]
+#[derive(DebugStub)]
 pub enum Command {
+    Alive(#[debug_stub=""] ::std::sync::mpsc::Sender<()>),
     Subscribe(Subscription),
     Publish(Publish),
     Connect,
@@ -55,13 +56,6 @@ impl MqttClient {
         })
     }
 
-    fn send_command(&mut self, command: Command) -> Result<()> {
-        self.nw_request_tx.send(command).map_err(
-            |_| "failed to send mqtt command to client thread",
-        )?;
-        Ok(())
-    }
-
     pub fn publish(&mut self, topic: &str, qos: ::mqtt3::QoS, payload: Vec<u8>) -> Result<()> {
         self.send_command(Command::Publish(Publish {
             topic: topic.into(),
@@ -69,6 +63,20 @@ impl MqttClient {
             payload,
         }))
     }
+
+    pub fn alive(&mut self) -> Result<()> {
+        let (tx, rx) = ::std::sync::mpsc::channel();
+        self.send_command(Command::Alive(tx))?;
+        Ok(rx.recv().map_err(|_| "Client thread looks dead")?)
+    }
+
+    fn send_command(&mut self, command: Command) -> Result<()> {
+        self.nw_request_tx.send(command).map_err(
+            |_| "failed to send mqtt command to client thread",
+        )?;
+        Ok(())
+    }
+
 }
 
 pub type SubscriptionCallback = Box<Fn(&::mqtt3::Publish) + Send>;

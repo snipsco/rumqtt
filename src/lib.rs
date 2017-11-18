@@ -1,3 +1,5 @@
+#[macro_use]
+extern crate debug_stub_derive;
 extern crate dns_lookup;
 extern crate mio;
 extern crate mio_more;

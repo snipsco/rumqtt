@@ -39,6 +39,8 @@ pub struct MqttOptions {
     pub security: SecurityOptions,
     /// maximum packet size
     pub max_packet_size: usize,
+    /// mqtt will
+    pub last_will: Option<::mqtt3::LastWill>,
 }
 
 impl MqttOptions {
@@ -54,6 +56,7 @@ impl MqttOptions {
             reconnect: ReconnectOptions::AfterFirstSuccess(10),
             security: SecurityOptions::None,
             max_packet_size: 100 * 1024,
+            last_will: None,
         }
     }
 
@@ -98,6 +101,13 @@ impl MqttOptions {
     /// Supports username-password auth, tls client cert auth, gcloud iotcore jwt auth
     pub fn set_security_opts(mut self, opts: SecurityOptions) -> Self {
         self.security = opts;
+        self
+    }
+
+    /// Set MQTT last will
+    /// This message will be emit by the broker on disconnect.
+    pub fn set_last_will(mut self, will:Option<::mqtt3::LastWill>) -> Self {
+        self.last_will = will;
         self
     }
 }
