@@ -350,7 +350,7 @@ mod test {
 
     use super::{MqttConnectionStatus, MqttState};
     use mqtt3::*;
-    use mqttopts::MqttOptions;
+    use options::MqttOptions;
     use error::*;
 
     #[test]

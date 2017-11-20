@@ -11,17 +11,10 @@ use ReconnectOptions;
 use error::*;
 use client::Command;
 
-pub enum ConnectionState {
-    Stopped(PendingState),
-    Established(ConnectedState),
-}
+const SOCKET_TOKEN: mio::Token = mio::Token(0);
+const COMMANDS_TOKEN: mio::Token = mio::Token(1);
 
-pub struct PendingState {
-    mqtt_state: MqttState,
-    commands_rx: Receiver<Command>,
-}
-
-pub struct ConnectedState {
+pub struct ConnectionState {
     mqtt_state: MqttState,
     commands_rx: Receiver<Command>,
     out_packets_tx: Sender<mqtt3::Packet>,
@@ -35,40 +28,16 @@ pub struct ConnectedState {
 
 pub fn start(opts: MqttOptions, commands_rx: Receiver<Command>) -> Result<ConnectionState> {
     let mqtt_state = MqttState::new(opts);
-    let mut connection = ConnectionState::new(mqtt_state, commands_rx);
+    let mut connection = ConnectionState::new(mqtt_state, commands_rx)?;
     connection.wait_for_connack()?;
     Ok(connection)
 }
 
-const SOCKET_TOKEN: mio::Token = mio::Token(0);
-const COMMANDS_TOKEN: mio::Token = mio::Token(1);
 
 impl ConnectionState {
-    fn new(mut mqtt_state: MqttState, commands_rx: Receiver<Command>) -> ConnectionState {
-        ConnectionState::Stopped(PendingState { mqtt_state, commands_rx })
-    }
-
-    pub fn start(&mut self) -> Result<()> {
-        match self {
-            ConnectionState::Stopped(state) => {
-                let connection = state.connect()?;
-            }
-        }
-    }
-
-    pub fn turn(&mut self, timeout: Option<Duration>) -> Result<()> {
-        self = match self {
-            &mut ConnectionState::Established(state) => state.turn(timeout)?
-        };
-        Ok(())
-    }
-}
-
-impl PendingState {
-    fn connect(&mut self) -> Result<TcpStream> {
-        let broker = &mqtt_state.opts().broker_addr;
+    fn tcp_connect(broker:&str) -> Result<::mio::tcp::TcpStream> {
         let (host, port) = if broker.contains(":") {
-            let mut tokens = mqtt_state.opts().broker_addr.split(":");
+            let mut tokens = broker.split(":");
             let host = tokens.next().unwrap();
             let port = tokens
                 .next()
@@ -77,7 +46,7 @@ impl PendingState {
                 .map_err(|_| "Failed to parse port number")?;
             (host, Some(port))
         } else {
-            (&**broker, None)
+            (broker, None)
         };
         let ips = ::dns_lookup::lookup_host(host)?;
         ips.into_iter()
@@ -92,17 +61,17 @@ impl PendingState {
                 }
             })
             .next()
-            .ok_or("Failed to connect to broker")?
+            .ok_or("Failed to connect to broker".into())
     }
 
-        // TODO: Add TLS support with client authentication (ca = roots.pem for iotcore)
-
-    fn wrap(self) -> Result<ConnectedState> {
+    // TODO: Add TLS support with client authentication (ca = roots.pem for iotcore)
+    fn new(mut mqtt_state: MqttState, commands_rx: Receiver<Command>) -> Result<ConnectionState> {
+        let connection = Self::tcp_connect(&mqtt_state.opts().broker_addr)?;
         let (out_packets_tx, out_packets_rx) = channel();
         out_packets_tx
             .send(mqtt3::Packet::Connect(mqtt_state.handle_outgoing_connect()))
             .map_err(|_| "failed to send mqtt command to client thread")?;
-        let state = EstablishedState {
+        let state = ConnectionState {
             mqtt_state,
             commands_rx,
             connection,
@@ -125,11 +94,9 @@ impl PendingState {
             mio::Ready::readable(),
             mio::PollOpt::edge(),
         )?;
-        Ok(ConnectionState::Established(state))
+        Ok(state)
     }
-}
 
-impl EstablishedState {
     pub fn turn(&mut self, timeout: Option<Duration>) -> Result<()> {
         let mut events = mio::Events::with_capacity(1024);
         self.poll
