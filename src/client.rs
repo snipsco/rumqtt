@@ -24,20 +24,40 @@ impl MqttClient {
     /// Returns 'Command' and handles reqests from it.
     /// Also handles network events, reconnections and retransmissions.
     pub fn start(opts: MqttOptions) -> Result<Self> {
+        use options::ReconnectOptions;
         let (commands_tx, commands_rx) = sync_channel(10);
         // This thread handles network reads (coz they are blocking) and
         // and sends them to event loop thread to handle mqtt state.
         let mut connection = ::connection::start(opts, commands_rx)?;
-        ::std::thread::spawn(move || {
-            loop {
+        ::std::thread::spawn(move || loop {
+            'inner: loop {
                 match connection.turn(None) {
                     Ok(_) => {}
                     Err(e) => {
-                        error!("Network Thread Stopped: {:?}", e);
-                        break;
+                        error!("Disconnected: ({:?})", e);
+                        break 'inner;
                     }
                 }
             }
+            let d = match connection.state().opts().reconnect {
+                ReconnectOptions::Never => break,
+                ReconnectOptions::Always(d) | ReconnectOptions::AfterFirstSuccess(d) => {
+                    info!("Will try to reconnect in {:?}", d);
+                    ::std::thread::sleep(d);
+                    d
+                }
+            };
+            loop {
+                info!("Try to reconnect");
+                match connection.reconnect() {
+                    Ok(ok) => break,
+                    Err(e) => {
+                        error!("Will retry to reconnect in {:?} ({:?})", d, e);
+                        ::std::thread::sleep(d);
+                    }
+                }
+            }
+            info!("Reconnected");
         });
 
         Ok(MqttClient {

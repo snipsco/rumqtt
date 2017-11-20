@@ -10,7 +10,7 @@ use rumqtt::{MqttClient, MqttOptions, ReconnectOptions};
 fn main() {
     loggerv::init_with_verbosity(1).unwrap();
     let mqtt_opts = MqttOptions::new("rumqtt-core", "127.0.0.1:1883")
-        .set_reconnect_opts(ReconnectOptions::AfterFirstSuccess(10));
+        .set_reconnect_opts(ReconnectOptions::AfterFirstSuccess(Duration::from_secs(10)));
 
     let mut client = MqttClient::start(mqtt_opts).unwrap();
 

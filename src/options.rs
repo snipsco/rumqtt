@@ -3,8 +3,8 @@ use std::time::Duration;
 #[derive(Copy, Clone)]
 pub enum ReconnectOptions {
     Never,
-    AfterFirstSuccess(u16),
-    Always(u16),
+    AfterFirstSuccess(Duration),
+    Always(Duration),
 }
 
 #[derive(Clone)]
@@ -53,7 +53,7 @@ impl MqttOptions {
             clean_session: true,
             client_id: id.into(),
             mqtt_connection_timeout: Duration::from_secs(5),
-            reconnect: ReconnectOptions::AfterFirstSuccess(10),
+            reconnect: ReconnectOptions::AfterFirstSuccess(Duration::from_secs(10)),
             security: SecurityOptions::None,
             max_packet_size: 100 * 1024,
             last_will: None,

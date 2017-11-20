@@ -35,7 +35,7 @@ pub fn start(opts: MqttOptions, commands_rx: Receiver<Command>) -> Result<Connec
 
 
 impl ConnectionState {
-    fn tcp_connect(broker:&str) -> Result<::mio::tcp::TcpStream> {
+    fn tcp_connect(broker: &str) -> Result<::mio::tcp::TcpStream> {
         let (host, port) = if broker.contains(":") {
             let mut tokens = broker.split(":");
             let host = tokens.next().unwrap();
@@ -48,6 +48,7 @@ impl ConnectionState {
         } else {
             (broker, None)
         };
+        debug!("Connecting to broker:{} -> {}:{:?}", broker, host, port);
         let ips = ::dns_lookup::lookup_host(host)?;
         ips.into_iter()
             .filter_map(|ip| {
@@ -69,9 +70,8 @@ impl ConnectionState {
         let connection = Self::tcp_connect(&mqtt_state.opts().broker_addr)?;
         let (out_packets_tx, out_packets_rx) = channel();
         out_packets_tx
-            .send(mqtt3::Packet::Connect(mqtt_state.handle_outgoing_connect()))
-            .map_err(|_| "failed to send mqtt command to client thread")?;
-        let state = ConnectionState {
+            .send(mqtt3::Packet::Connect(mqtt_state.handle_outgoing_connect()));
+        let mut state = ConnectionState {
             mqtt_state,
             commands_rx,
             connection,
@@ -83,18 +83,40 @@ impl ConnectionState {
             poll: mio::Poll::new()?,
         };
         state.poll.register(
-            &state.connection,
-            SOCKET_TOKEN,
-            mio::Ready::readable() | mio::Ready::writable(),
-            mio::PollOpt::edge(),
-        )?;
-        state.poll.register(
             &state.commands_rx,
             COMMANDS_TOKEN,
             mio::Ready::readable(),
             mio::PollOpt::edge(),
         )?;
+        state.poll.register(
+            &state.connection,
+            SOCKET_TOKEN,
+            mio::Ready::readable() | mio::Ready::writable(),
+            mio::PollOpt::edge(),
+        )?;
         Ok(state)
+    }
+
+    pub fn reconnect(&mut self) -> Result<()> {
+        let connection = Self::tcp_connect(&self.mqtt_state.opts().broker_addr)?;
+        let (out_packets_tx, out_packets_rx) = channel();
+        debug!("deregistering");
+        self.poll.deregister(&self.connection);
+        self.poll.register(
+            &connection,
+            SOCKET_TOKEN,
+            mio::Ready::readable() | mio::Ready::writable(),
+            mio::PollOpt::edge(),
+        )?;
+        self.connection = connection;
+        self.out_packets_tx = out_packets_tx;
+        self.out_packets_rx = out_packets_rx;
+        self.out_buffer = ::std::io::Cursor::new(vec![]);
+        self.in_buffer = vec![0; 256];
+        self.in_read = 0;
+        self.out_packets_tx
+            .send(mqtt3::Packet::Connect(self.mqtt_state.handle_outgoing_connect()));
+        Ok(())
     }
 
     pub fn turn(&mut self, timeout: Option<Duration>) -> Result<()> {
@@ -119,7 +141,7 @@ impl ConnectionState {
         Ok(())
     }
 
-    fn state(&self) -> &MqttState {
+    pub fn state(&self) -> &MqttState {
         &self.mqtt_state
     }
 
@@ -220,7 +242,10 @@ impl ConnectionState {
                     debug!("reading from socket would block");
                     break;
                 }
-                Ok(0) => Err("disconnected")?,
+                Ok(0) => {
+                    self.mqtt_state.handle_disconnect();
+                    Err("socket closed")?
+                }
                 Ok(read) => {
                     self.in_read += read;
                     let mut used = 0;

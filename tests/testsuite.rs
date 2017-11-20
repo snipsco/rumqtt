@@ -5,13 +5,13 @@ extern crate loggerv;
 extern crate mqtt3;
 extern crate rumqtt;
 
-use std::io::{Read, Write};
 use std::thread;
 use std::time::Duration;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 //use rumqtt::{MqttOptions, MqttClient, QoS, MqttCallback, Message};
+use mqtt3::{MqttRead, MqttWrite};
 use rumqtt::{MqttClient, MqttOptions, QoS, ReconnectOptions};
 
 const BROKER_ADDRESS: &'static str = "dev-mqtt-broker.atherengineering.in:1883";
@@ -31,6 +31,7 @@ fn inital_tcp_connect_failure() {
 }
 
 fn spawn_silent_server(port: u16) {
+    use std::io::Read;
     let server = ::std::net::TcpListener::bind(("localhost", port)).unwrap();
     ::std::thread::spawn(move || {
         let mut stream = server.incoming().next().unwrap().unwrap().bytes();
@@ -55,8 +56,13 @@ fn spawn_server_after(port: u16, delay: Duration) {
         ::std::thread::sleep(delay);
         let server = ::std::net::TcpListener::bind(("localhost", port)).unwrap();
         let mut stream = server.incoming().next().unwrap().unwrap();
-        let connect_packet = stream.read_exact(&mut vec![0, 16]); // connect is 16 bytes long
-        stream.write_all(&[32, 2, 0, 0]);
+        let connect_packet = stream.read_packet().unwrap();
+        stream
+            .write_packet(&mqtt3::Packet::Connack(mqtt3::Connack {
+                session_present: false,
+                code: mqtt3::ConnectReturnCode::Accepted,
+            }))
+            .unwrap();
     });
 }
 
@@ -66,8 +72,8 @@ fn spawn_server_after(port: u16, delay: Duration) {
 fn initial_mqtt_reconnect() {
     // loggerv::init_with_level(log::LogLevel::Debug);
     spawn_server_after(19991, Duration::from_secs(2));
-    let client_options =
-        MqttOptions::new("reco", "localhost:1991").set_reconnect_opts(ReconnectOptions::Always(3));
+    let client_options = MqttOptions::new("reco", "localhost:1991")
+        .set_reconnect_opts(ReconnectOptions::Always(Duration::from_secs(3)));
 
     // Connects to a broker and returns a `request`
     let result = MqttClient::start(client_options);
@@ -149,6 +155,50 @@ fn alive() {
     assert!(request.alive().is_ok());
 }
 
+fn server_that_drops_connection_after_three_secs(port: u16) {
+    ::std::thread::spawn(move || {
+        let server = ::std::net::TcpListener::bind(("localhost", port)).unwrap();
+        for stream in server.incoming() {
+            debug!("accepting connection");
+            let mut stream = stream.unwrap();
+            let connect_packet = stream.read_packet();
+            stream
+                .write_packet(&mqtt3::Packet::Connack(mqtt3::Connack {
+                    session_present: false,
+                    code: mqtt3::ConnectReturnCode::Accepted,
+                }))
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            debug!("dropping connection");
+        }
+    });
+}
+
+#[test]
+fn detect_disconnection() {
+    // loggerv::init_with_level(log::LogLevel::Debug).unwrap();
+    debug!("kokoo");
+    server_that_drops_connection_after_three_secs(19993);
+    let client_options =
+        MqttOptions::new("deco", "localhost:19993").set_reconnect_opts(ReconnectOptions::Never);
+    let mut request = MqttClient::start(client_options).expect("Coudn't start");
+    assert!(request.alive().is_ok());
+    std::thread::sleep(std::time::Duration::from_secs(5));
+    debug!("alive?");
+    assert!(request.alive().is_err());
+}
+
+#[test]
+fn reconnection_on_drop() {
+    // loggerv::init_with_level(log::LogLevel::Debug).unwrap();
+    server_that_drops_connection_after_three_secs(19994);
+    let client_options = MqttOptions::new("reco", "localhost:19994")
+        .set_reconnect_opts(ReconnectOptions::Always(Duration::from_secs(1)));
+    let mut request = MqttClient::start(client_options).expect("Coudn't start");
+    assert!(request.alive().is_ok());
+    std::thread::sleep(std::time::Duration::from_secs(5));
+    assert!(request.alive().is_ok());
+}
 
 /*
 #[test]
