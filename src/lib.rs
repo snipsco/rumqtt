@@ -14,7 +14,7 @@ extern crate mqtt3;
 extern crate serde_derive;
 
 #[allow(unused_doc_comment)]
-mod error {
+pub mod error {
     error_chain! {
         foreign_links {
             Io(::std::io::Error);
@@ -22,10 +22,14 @@ mod error {
             SyncMpsc(::std::sync::mpsc::TryRecvError);
         }
         errors {
-            InvalidState {
-                description("invalid state")
-                display("invalid state")}
+            InvalidState
+            PacketSizeLimitExceeded
+            Connack(code: ::mqtt3::ConnectReturnCode) {
+                description("mqtt negotiation failed")
+                display("mqtt negogiation failed with return code: {:?}", code)
             }
+
+        }
     }
 }
 

@@ -7,7 +7,6 @@ use mio_more::channel::*;
 
 use MqttOptions;
 use state::MqttState;
-use ReconnectOptions;
 use error::*;
 use client::Command;
 
@@ -70,8 +69,8 @@ impl ConnectionState {
         let connection = Self::tcp_connect(&mqtt_state.opts().broker_addr)?;
         let (out_packets_tx, out_packets_rx) = channel();
         out_packets_tx
-            .send(mqtt3::Packet::Connect(mqtt_state.handle_outgoing_connect()));
-        let mut state = ConnectionState {
+            .send(mqtt3::Packet::Connect(mqtt_state.handle_outgoing_connect())).unwrap(); // checked: brand new channel
+        let state = ConnectionState {
             mqtt_state,
             commands_rx,
             connection,
@@ -101,7 +100,7 @@ impl ConnectionState {
         let connection = Self::tcp_connect(&self.mqtt_state.opts().broker_addr)?;
         let (out_packets_tx, out_packets_rx) = channel();
         debug!("deregistering");
-        self.poll.deregister(&self.connection);
+        self.poll.deregister(&self.connection)?;
         self.poll.register(
             &connection,
             SOCKET_TOKEN,
@@ -115,7 +114,7 @@ impl ConnectionState {
         self.in_buffer = vec![0; 256];
         self.in_read = 0;
         self.out_packets_tx
-            .send(mqtt3::Packet::Connect(self.mqtt_state.handle_outgoing_connect()));
+            .send(mqtt3::Packet::Connect(self.mqtt_state.handle_outgoing_connect())).unwrap(); // checked: brand new channel.
         Ok(())
     }
 
@@ -276,6 +275,11 @@ impl ConnectionState {
         match packet {
             mqtt3::Packet::Connack(connack) => {
                 self.mqtt_state.handle_incoming_connack(connack)?;
+                if let Some(msgs) = self.mqtt_state.handle_reconnection() {
+                    for msg in msgs {
+                        self.send_packet(mqtt3::Packet::Publish(msg))?;
+                    }
+                }
                 self.turn_command()?;
             }
             mqtt3::Packet::Suback(suback) => self.mqtt_state.handle_incoming_suback(suback)?,

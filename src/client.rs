@@ -50,7 +50,7 @@ impl MqttClient {
             loop {
                 info!("Try to reconnect");
                 match connection.reconnect() {
-                    Ok(ok) => break,
+                    Ok(_) => break,
                     Err(e) => {
                         error!("Will retry to reconnect in {:?} ({:?})", d, e);
                         ::std::thread::sleep(d);

@@ -19,7 +19,7 @@ fn main() {
             "hello/world",
             Box::new(move |msg| println!("Received {:?}", msg)),
         )
-        .unwrap();
+        .unwrap().send().unwrap();
 
     for _ in 0..100 {
         client
