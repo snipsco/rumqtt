@@ -10,12 +10,20 @@ use chrono::{self, Utc};
 use mqtt3;
 use MqttOptions;
 use SecurityOptions;
+use ReconnectOptions;
 use error::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MqttConnectionStatus {
-    Handshake,
+    /// connection opened, waiting for CONNACK message
+    Handshake { initial: bool },
+    /// normal running state
     Connected,
+    /// clientr will seek reconnection
+    WantConnect { when: Instant },
+    /// client has been instructed to disconnect from the API
+    WantDisconnect,
+    /// client is disconnected and will not seek reconnection for now
     Disconnected,
 }
 
@@ -55,7 +63,7 @@ impl MqttState {
     pub fn new(opts: MqttOptions) -> Self {
         MqttState {
             opts: opts,
-            connection_status: MqttConnectionStatus::Disconnected,
+            connection_status: MqttConnectionStatus::WantConnect { when: Instant::now() },
             await_pingresp: false,
             last_flush: Instant::now(),
             last_pkid: mqtt3::PacketIdentifier(0),
@@ -72,7 +80,7 @@ impl MqttState {
         self.connection_status
     }
 
-    pub fn handle_outgoing_connect(&mut self) -> mqtt3::Connect {
+    pub fn handle_outgoing_connect(&mut self, initial: bool) -> mqtt3::Connect {
         let keep_alive = if let Some(keep_alive) = self.opts.keep_alive {
             keep_alive
         } else {
@@ -80,7 +88,7 @@ impl MqttState {
         };
 
         self.opts.keep_alive = Some(keep_alive);
-        self.connection_status = MqttConnectionStatus::Handshake;
+        self.connection_status = MqttConnectionStatus::Handshake { initial };
 
         let (username, password) = match self.opts.security {
             SecurityOptions::UsernamePassword((ref username, ref password)) => {
@@ -103,10 +111,25 @@ impl MqttState {
         }
     }
 
+    fn set_status_after_error(&mut self) {
+        use self::MqttConnectionStatus::*;
+        use ReconnectOptions::*;
+        match (self.connection_status, self.opts.reconnect) {
+              (Handshake { initial: true }, Always(d))
+            | (Handshake {..}, AfterFirstSuccess(d))
+            | (Connected, AfterFirstSuccess(d))
+            | (Connected, Always(d))
+            | (WantConnect { .. }, AfterFirstSuccess(d))
+            | (WantConnect { .. }, Always(d))
+                => self.connection_status = WantConnect { when: Instant::now()+d },
+            _ => self.connection_status = Disconnected
+        }
+    }
+
     pub fn handle_incoming_connack(&mut self, connack: mqtt3::Connack) -> Result<()> {
         let response = connack.code;
         if response != mqtt3::ConnectReturnCode::Accepted {
-            self.connection_status = MqttConnectionStatus::Disconnected;
+            self.set_status_after_error();
             Err(ErrorKind::Connack(response))?
         } else {
             self.connection_status = MqttConnectionStatus::Connected;
@@ -294,9 +317,9 @@ impl MqttState {
         Ok(())
     }
 
-    pub fn handle_disconnect(&mut self) {
+    pub fn handle_socket_disconnect(&mut self) {
         self.await_pingresp = false;
-        self.connection_status = MqttConnectionStatus::Disconnected;
+        self.set_status_after_error();
 
         // remove all the state
         if self.opts.clean_session {
@@ -550,9 +573,12 @@ mod test {
         let _ = mqtt.handle_outgoing_publish(publish.clone());
         let _ = mqtt.handle_outgoing_publish(publish);
 
-        mqtt.handle_disconnect();
+        mqtt.handle_socket_disconnect();
         assert_eq!(mqtt.outgoing_pub.len(), 0);
-        assert_eq!(mqtt.connection_status, MqttConnectionStatus::Disconnected);
+        match mqtt.connection_status {
+            MqttConnectionStatus::WantConnect { .. } => {},
+            _ => panic!()
+        }
         assert_eq!(mqtt.await_pingresp, false);
     }
 
@@ -575,9 +601,12 @@ mod test {
         let _ = mqtt.handle_outgoing_publish(publish.clone());
         let _ = mqtt.handle_outgoing_publish(publish);
 
-        mqtt.handle_disconnect();
+        mqtt.handle_socket_disconnect();
         assert_eq!(mqtt.outgoing_pub.len(), 3);
-        assert_eq!(mqtt.connection_status, MqttConnectionStatus::Disconnected);
+        match mqtt.connection_status {
+            MqttConnectionStatus::WantConnect { .. } => {},
+            _ => panic!()
+        }
         assert_eq!(mqtt.await_pingresp, false);
     }
 
@@ -585,9 +614,15 @@ mod test {
     fn connection_status_is_valid_while_handling_connect_and_connack_packets() {
         let mut mqtt = MqttState::new(MqttOptions::new("test-id", "127.0.0.1:1883"));
 
-        assert_eq!(mqtt.connection_status, MqttConnectionStatus::Disconnected);
-        mqtt.handle_outgoing_connect();
-        assert_eq!(mqtt.connection_status, MqttConnectionStatus::Handshake);
+        match mqtt.connection_status {
+            MqttConnectionStatus::WantConnect { .. } => {},
+            _ => panic!()
+        }
+        mqtt.handle_outgoing_connect(true);
+        assert_eq!(
+            mqtt.connection_status,
+            MqttConnectionStatus::Handshake { initial: true }
+        );
 
         let connack = Connack {
             session_present: false,
@@ -603,7 +638,10 @@ mod test {
         };
 
         assert!(mqtt.handle_incoming_connack(connack).is_err());
-        assert_eq!(mqtt.connection_status, MqttConnectionStatus::Disconnected);
+        match mqtt.connection_status {
+            MqttConnectionStatus::WantConnect { .. } => {},
+            _ => panic!()
+        }
     }
 
     #[test]

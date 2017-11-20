@@ -69,7 +69,10 @@ impl ConnectionState {
         let connection = Self::tcp_connect(&mqtt_state.opts().broker_addr)?;
         let (out_packets_tx, out_packets_rx) = channel();
         out_packets_tx
-            .send(mqtt3::Packet::Connect(mqtt_state.handle_outgoing_connect())).unwrap(); // checked: brand new channel
+            .send(mqtt3::Packet::Connect(
+                mqtt_state.handle_outgoing_connect(true),
+            ))
+            .unwrap(); // checked: brand new channel
         let state = ConnectionState {
             mqtt_state,
             commands_rx,
@@ -114,7 +117,10 @@ impl ConnectionState {
         self.in_buffer = vec![0; 256];
         self.in_read = 0;
         self.out_packets_tx
-            .send(mqtt3::Packet::Connect(self.mqtt_state.handle_outgoing_connect())).unwrap(); // checked: brand new channel.
+            .send(mqtt3::Packet::Connect(
+                self.mqtt_state.handle_outgoing_connect(false),
+            ))
+            .unwrap(); // checked: brand new channel.
         Ok(())
     }
 
@@ -127,9 +133,7 @@ impl ConnectionState {
             if event.token() == SOCKET_TOKEN && event.readiness().is_readable() {
                 self.turn_incoming()?;
             }
-            if self.state().status() == ::state::MqttConnectionStatus::Connected
-                && event.token() == COMMANDS_TOKEN
-            {
+            if event.token() == COMMANDS_TOKEN {
                 self.turn_command()?;
             }
             if event.token() == SOCKET_TOKEN && event.readiness().is_writable() {
@@ -242,7 +246,7 @@ impl ConnectionState {
                     break;
                 }
                 Ok(0) => {
-                    self.mqtt_state.handle_disconnect();
+                    self.mqtt_state.handle_socket_disconnect();
                     Err("socket closed")?
                 }
                 Ok(read) => {
@@ -309,6 +313,7 @@ impl ConnectionState {
     }
 
     fn handle_command(&mut self, command: Command) -> Result<()> {
+        info!("handle command : {:?}", command);
         match command {
             Command::Publish(publish) => {
                 let publish = mqtt3::Publish {
@@ -326,8 +331,8 @@ impl ConnectionState {
                 let packet = self.mqtt_state.handle_outgoing_subscribe(vec![sub])?;
                 self.send_packet(mqtt3::Packet::Subscribe(packet))?
             }
-            Command::Alive(tx) => {
-                let _ = tx.send(());
+            Command::Status(tx) => {
+                let _ = tx.send(self.state().status());
             }
             Command::Connect => unimplemented!(),
             Command::Disconnect => unimplemented!(),
@@ -429,7 +434,7 @@ impl ConnectionState {
             */
             /*
             Command::Disconnect => {
-                mqtt_state.borrow_mut().handle_disconnect();
+                mqtt_state.borrow_mut().handle_socket_disconnect();
                 Ok(mqtt3::Packet::Disconnect)
             },
             */

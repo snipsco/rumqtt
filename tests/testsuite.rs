@@ -150,9 +150,9 @@ fn alive() {
     // loggerv::init_with_level(log::LogLevel::Debug);
     let client_options = MqttOptions::new("keep-alive", MOSQUITTO_ADDR).set_keep_alive(5);
     let mut request = MqttClient::start(client_options).expect("Coudn't start");
-    assert!(request.alive().is_ok());
+    assert!(request.connected());
     std::thread::sleep(std::time::Duration::from_secs(10));
-    assert!(request.alive().is_ok());
+    assert!(request.connected());
 }
 
 fn server_that_drops_connection_after_three_secs(port: u16) {
@@ -182,10 +182,10 @@ fn detect_disconnection() {
     let client_options =
         MqttOptions::new("deco", "localhost:19993").set_reconnect_opts(ReconnectOptions::Never);
     let mut request = MqttClient::start(client_options).expect("Coudn't start");
-    assert!(request.alive().is_ok());
+    assert!(request.connected());
     std::thread::sleep(std::time::Duration::from_secs(5));
     debug!("alive?");
-    assert!(request.alive().is_err());
+    assert!(!request.connected());
 }
 
 #[test]
@@ -195,9 +195,9 @@ fn reconnection_on_drop() {
     let client_options = MqttOptions::new("reco", "localhost:19994")
         .set_reconnect_opts(ReconnectOptions::Always(Duration::from_secs(1)));
     let mut request = MqttClient::start(client_options).expect("Coudn't start");
-    assert!(request.alive().is_ok());
+    assert!(request.connected());
     std::thread::sleep(std::time::Duration::from_secs(5));
-    assert!(request.alive().is_ok());
+    assert!(request.connected());
 }
 
 /*

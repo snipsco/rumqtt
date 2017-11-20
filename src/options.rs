@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ReconnectOptions {
     Never,
     AfterFirstSuccess(Duration),

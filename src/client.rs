@@ -8,7 +8,7 @@ use MqttOptions;
 
 #[derive(DebugStub)]
 pub enum Command {
-    Alive(#[debug_stub = ""] ::std::sync::mpsc::Sender<()>),
+    Status(#[debug_stub = ""] ::std::sync::mpsc::Sender<::state::MqttConnectionStatus>),
     Subscribe(Subscription),
     Publish(Publish),
     Connect,
@@ -24,40 +24,45 @@ impl MqttClient {
     /// Returns 'Command' and handles reqests from it.
     /// Also handles network events, reconnections and retransmissions.
     pub fn start(opts: MqttOptions) -> Result<Self> {
-        use options::ReconnectOptions;
         let (commands_tx, commands_rx) = sync_channel(10);
-        // This thread handles network reads (coz they are blocking) and
-        // and sends them to event loop thread to handle mqtt state.
         let mut connection = ::connection::start(opts, commands_rx)?;
-        ::std::thread::spawn(move || loop {
-            'inner: loop {
-                match connection.turn(None) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("Disconnected: ({:?})", e);
-                        break 'inner;
+        ::std::thread::spawn(move || {
+            'outer: loop {
+                loop {
+                    match connection.turn(None) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            error!("Disconnected: ({:?})", e);
+                            break;
+                        }
+                    }
+                }
+                loop {
+                    if let ::state::MqttConnectionStatus::WantConnect { when } =
+                        connection.state().status()
+                    {
+                        info!("Will try to reconnect at {:?}", when);
+                        let now = ::std::time::Instant::now();
+                        if now < when {
+                            ::std::thread::sleep(when-now);
+                        }
+                    } else {
+                        info!("not looking for reconnection");
+                        break;
+                    }
+                    info!("Try to reconnect");
+                    match connection.reconnect() {
+                        Ok(_) => {
+                            info!("Reconnected");
+                            break;
+                        }
+                        Err(e) => {
+                            error!("({:?})", e);
+                        }
                     }
                 }
             }
-            let d = match connection.state().opts().reconnect {
-                ReconnectOptions::Never => break,
-                ReconnectOptions::Always(d) | ReconnectOptions::AfterFirstSuccess(d) => {
-                    info!("Will try to reconnect in {:?}", d);
-                    ::std::thread::sleep(d);
-                    d
-                }
-            };
-            loop {
-                info!("Try to reconnect");
-                match connection.reconnect() {
-                    Ok(_) => break,
-                    Err(e) => {
-                        error!("Will retry to reconnect in {:?} ({:?})", d, e);
-                        ::std::thread::sleep(d);
-                    }
-                }
-            }
-            info!("Reconnected");
+            info!("client thread done");
         });
 
         Ok(MqttClient {
@@ -93,9 +98,13 @@ impl MqttClient {
         })
     }
 
-    pub fn alive(&mut self) -> Result<()> {
+    pub fn connected(&mut self) -> bool {
+        self.status().map(|s| s == ::state::MqttConnectionStatus::Connected).unwrap_or(false)
+    }
+
+    pub fn status(&mut self) -> Result<::state::MqttConnectionStatus> {
         let (tx, rx) = ::std::sync::mpsc::channel();
-        self.send_command(Command::Alive(tx))?;
+        self.send_command(Command::Status(tx))?;
         Ok(rx.recv().map_err(|_| "Client thread looks dead")?)
     }
 
