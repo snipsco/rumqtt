@@ -264,7 +264,7 @@ impl ConnectionState {
                     }
                     if used > 0 {
                         if used < self.in_read {
-                            for i in 0..(used - self.in_read) {
+                            for i in 0..(self.in_read - used) {
                                 self.in_buffer[i] = self.in_buffer[i + used]
                             }
                         }
