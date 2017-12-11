@@ -29,6 +29,7 @@ pub fn start(opts: MqttOptions, commands_rx: Receiver<Command>) -> Result<Connec
     let mqtt_state = MqttState::new(opts);
     let mut connection = ConnectionState::new(mqtt_state, commands_rx)?;
     connection.wait_for_connack()?;
+    debug!("Conenction established");
     Ok(connection)
 }
 
@@ -128,6 +129,7 @@ impl ConnectionState {
         let mut events = mio::Events::with_capacity(1024);
         self.poll
             .poll(&mut events, timeout.or(Some(Duration::from_secs(1))))?;
+        debug!("exit poll: {:?} events", events.len());
         for event in events.iter() {
             debug!("event: {:?}", event);
             if event.token() == SOCKET_TOKEN && event.readiness().is_readable() {
@@ -305,10 +307,14 @@ impl ConnectionState {
     }
 
     fn consider_ping(&mut self) -> Result<()> {
+        debug!("Enter consider ping");
         if self.state().is_ping_required() {
+            debug!("Handling ping");
             self.mqtt_state.handle_outgoing_ping()?;
+            debug!("Sending ping");
             self.send_packet(mqtt3::Packet::Pingreq)?;
         }
+        debug!("Done consider ping");
         Ok(())
     }
 

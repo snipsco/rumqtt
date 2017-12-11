@@ -246,6 +246,7 @@ impl MqttState {
 
         let elapsed = self.last_flush.elapsed();
         if elapsed >= Duration::new(u64::from(keep_alive + 1), 0) {
+            debug!("Might be too late for ping");
             return Err(ErrorKind::InvalidState.into());
         }
         // @ Prevents half open connections. Tcp writes will buffer up
@@ -257,10 +258,12 @@ impl MqttState {
         // ?. A. Tcp write buffer gets filled up and write will be blocked for 10
         // secs and then error out because of timeout.)
         if self.await_pingresp {
+            debug!("Already expecting a pingresp");
             return Err(ErrorKind::InvalidState.into());
         }
 
         if self.connection_status == MqttConnectionStatus::Connected {
+            debug!("Expecting pingresp");
             self.last_flush = Instant::now();
             self.await_pingresp = true;
             Ok(())
@@ -293,9 +296,6 @@ impl MqttState {
         self.subscriptions.extend(subs);
 
         if self.connection_status == MqttConnectionStatus::Connected {
-            self.last_flush = Instant::now();
-            self.await_pingresp = true;
-
             Ok(mqtt3::Subscribe { pid: pkid, topics })
         } else {
             error!(

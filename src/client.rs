@@ -28,6 +28,7 @@ impl MqttClient {
         let mut connection = ::connection::start(opts, commands_rx)?;
         ::std::thread::spawn(move || {
             'outer: loop {
+                debug!("Entering normal operation loop");
                 loop {
                     match connection.turn(None) {
                         Ok(_) => {}
@@ -47,8 +48,8 @@ impl MqttClient {
                             ::std::thread::sleep(when-now);
                         }
                     } else {
-                        info!("not looking for reconnection");
-                        break;
+                        info!("not seeking reconnection");
+                        break 'outer;
                     }
                     info!("Try to reconnect");
                     match connection.reconnect() {
