@@ -44,7 +44,7 @@ pub struct MqttOptions {
 }
 
 impl MqttOptions {
-    pub fn new<S: Into<String>>(id: S, addr: S) -> MqttOptions {
+    pub fn new<S1: Into<String>, S2: Into<String>>(id: S1, addr: S2) -> MqttOptions {
         // TODO: Validate client id. Shouldn't be empty or start with spaces
         // TODO: Validate if addr is proper address type
         MqttOptions {
