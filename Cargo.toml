@@ -18,7 +18,7 @@ chrono = "0.4"
 jsonwebtoken = "3"
 serde = "1"
 serde_derive = "1"
-error-chain = "0.10"
+error-chain = { version = "0.10", default-features = false }
 log = "0.3"
 rustls = "0.11"
 
