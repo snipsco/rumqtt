@@ -10,6 +10,7 @@ extern crate log;
 extern crate mio;
 extern crate mio_more;
 extern crate mqtt3;
+extern crate rustls;
 #[macro_use]
 extern crate serde_derive;
 
@@ -20,6 +21,7 @@ pub mod error {
             Io(::std::io::Error);
             Mqtt3(::mqtt3::Error);
             SyncMpsc(::std::sync::mpsc::TryRecvError);
+            Rustls(::rustls::TLSError);
         }
         errors {
             InvalidState
@@ -38,6 +40,7 @@ mod connection;
 mod options;
 mod state;
 
-pub use options::{MqttOptions, ReconnectOptions, SecurityOptions};
+pub use rustls::ClientConfig as RustlsConfig;
+pub use options::{MqttOptions, ReconnectOptions, TlsOptions};
 pub use client::MqttClient;
 pub use mqtt3::{Message, Publish, QoS, ToTopicPath, TopicPath};

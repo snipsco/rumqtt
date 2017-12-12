@@ -9,7 +9,6 @@ use chrono::{self, Utc};
 
 use mqtt3;
 use MqttOptions;
-use SecurityOptions;
 use ReconnectOptions;
 use error::*;
 
@@ -89,7 +88,7 @@ impl MqttState {
 
         self.opts.keep_alive = Some(keep_alive);
         self.connection_status = MqttConnectionStatus::Handshake { initial };
-
+/*
         let (username, password) = match self.opts.security {
             SecurityOptions::UsernamePassword((ref username, ref password)) => {
                 (Some(username.to_owned()), Some(password.to_owned()))
@@ -100,14 +99,15 @@ impl MqttState {
             ),
             _ => (None, None),
         };
+*/
         mqtt3::Connect {
             protocol: mqtt3::Protocol::MQTT(4),
             keep_alive,
             client_id: self.opts.client_id.clone(),
             clean_session: self.opts.clean_session,
             last_will: None,
-            username,
-            password,
+            username: None,
+            password: None,
         }
     }
 

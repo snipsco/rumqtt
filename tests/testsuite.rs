@@ -10,13 +10,11 @@ use std::time::Duration;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-//use rumqtt::{MqttOptions, MqttClient, QoS, MqttCallback, Message};
 use mqtt3::{MqttRead, MqttWrite};
 use rumqtt::{MqttClient, MqttOptions, QoS, ReconnectOptions};
 
-const BROKER_ADDRESS: &'static str = "dev-mqtt-broker.atherengineering.in:1883";
-// const MOSQUITTO_ADDR: &'static str = "test.mosquitto.org:1883";
-const MOSQUITTO_ADDR: &'static str = "37.187.106.16:1883";
+const MOSQUITTO_ADDR: &'static str = "test.mosquitto.org:1883";
+const MOSQUITTO_TLS_ADDR: &'static str = "test.mosquitto.org:8883";
 
 /// Shouldn't try to reconnect if there is a connection problem
 /// during initial tcp connect.
@@ -531,8 +529,26 @@ fn qos2_stress_publish_with_reconnections() {
     println!("QoS2 Final Count = {:?}", final_count.load(Ordering::SeqCst));
     assert!(1000 == final_count.load(Ordering::SeqCst));
 }
+*/
 
+#[test]
+fn tls() {
+    loggerv::init_with_level(log::LogLevel::Debug);
+    let mut ssl = rumqtt::RustlsConfig::new();
+    // let cafile = include_bytes!("mosquitto.org.ca.crt");
+    let cafile = include_bytes!("mosquitto.org.ca.crt");
+    let mut pcafile:&[u8] = &cafile[..];
+    ssl.root_store.add_pem_file(&mut pcafile).unwrap();
+    let client_options = MqttOptions::new("keep-alive", MOSQUITTO_TLS_ADDR)
+        .set_keep_alive(5)
+        .set_tls_opts(Some(rumqtt::TlsOptions::new("mosquitto.org".into(), ssl)));
+    let mut request = MqttClient::start(client_options).expect("Coudn't start");
+    assert!(request.connected());
+    std::thread::sleep(std::time::Duration::from_secs(10));
+    assert!(request.connected());
+}
 
+/*
 // NOTE: POTENTIAL MOSQUITTO BUG
 // client publishing 1..40 and disconnect and 40..46(with errors) before read
 // triggered

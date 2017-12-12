@@ -5,6 +5,8 @@ use mqtt3;
 use mio;
 use mio_more::channel::*;
 
+use rustls::ClientSession;
+
 use MqttOptions;
 use state::MqttState;
 use error::*;
@@ -23,6 +25,7 @@ pub struct ConnectionState {
     in_read: usize,
     connection: mio::net::TcpStream,
     poll: mio::Poll,
+    tls_session: Option<ClientSession>
 }
 
 pub fn start(opts: MqttOptions, commands_rx: Receiver<Command>) -> Result<ConnectionState> {
@@ -65,9 +68,13 @@ impl ConnectionState {
             .ok_or("Failed to connect to broker".into())
     }
 
-    // TODO: Add TLS support with client authentication (ca = roots.pem for iotcore)
     fn new(mut mqtt_state: MqttState, commands_rx: Receiver<Command>) -> Result<ConnectionState> {
         let connection = Self::tcp_connect(&mqtt_state.opts().broker_addr)?;
+        let tls_session = if let Some(ref tls) = mqtt_state.opts().tls {
+            Some(ClientSession::new(&tls.config, &tls.hostname))
+        } else {
+            None
+        };
         let (out_packets_tx, out_packets_rx) = channel();
         out_packets_tx
             .send(mqtt3::Packet::Connect(
@@ -83,6 +90,7 @@ impl ConnectionState {
             out_buffer: ::std::io::Cursor::new(vec![]),
             in_buffer: vec![0; 256],
             in_read: 0,
+            tls_session,
             poll: mio::Poll::new()?,
         };
         state.poll.register(
@@ -102,6 +110,11 @@ impl ConnectionState {
 
     pub fn reconnect(&mut self) -> Result<()> {
         let connection = Self::tcp_connect(&self.mqtt_state.opts().broker_addr)?;
+        let tls_session = if let Some(ref tls) = self.mqtt_state.opts().tls {
+            Some(ClientSession::new(&tls.config, "example.com"))
+        } else {
+            None
+        };
         let (out_packets_tx, out_packets_rx) = channel();
         debug!("deregistering");
         self.poll.deregister(&self.connection)?;
@@ -112,6 +125,7 @@ impl ConnectionState {
             mio::PollOpt::edge(),
         )?;
         self.connection = connection;
+        self.tls_session = tls_session;
         self.out_packets_tx = out_packets_tx;
         self.out_packets_rx = out_packets_rx;
         self.out_buffer = ::std::io::Cursor::new(vec![]);
@@ -179,6 +193,7 @@ impl ConnectionState {
     fn turn_outgoing(&mut self) -> Result<()> {
         use mqtt3::MqttWrite;
         use std::io::Write;
+        use rustls::Session;
         loop {
             if self.out_buffer.position() == self.out_buffer.get_ref().len() as u64 {
                 match self.out_packets_rx.try_recv() {
@@ -195,7 +210,15 @@ impl ConnectionState {
             }
             debug!("outgoing buffer is {}", self.out_buffer.get_ref().len());
             if self.out_buffer.get_ref().len() as u64 > self.out_buffer.position() {
-                match self.connection.write(&self.out_buffer.get_ref()) {
+                let write = if let Some(ref mut tls) = self.tls_session {
+                    if tls.wants_write() {
+                        tls.write_tls(&mut self.connection);
+                    }
+                    tls.write(&self.out_buffer.get_ref())
+                } else {
+                    self.connection.write(&self.out_buffer.get_ref())
+                };
+                match write {
                     Ok(written) => {
                         debug!("wrote {:?}", written);
                         let pos = self.out_buffer.position();
@@ -236,20 +259,37 @@ impl ConnectionState {
     fn turn_incoming(&mut self) -> Result<()> {
         use std::io::Read;
         use mqtt3::MqttRead;
+        use rustls::Session;
         loop {
+            debug!("turn_incoming loop");
             if self.in_read == self.in_buffer.len() {
                 self.in_buffer.resize(self.in_read + 128, 0);
             }
-            let read = self.connection.read(&mut self.in_buffer[self.in_read..]);
+            let read = if let Some(ref mut tls) = self.tls_session {
+                debug!("ssl");
+                if tls.wants_read() {
+                    debug!("want read");
+                    let raw_read = tls.read_tls(&mut self.connection);
+                    if let Ok(0) = raw_read {
+                        self.mqtt_state.handle_socket_disconnect();
+                        Err("socket closed")?
+                    }
+                    tls.process_new_packets()?
+                }
+                tls.read(&mut self.in_buffer[self.in_read..])
+            } else {
+                let read = self.connection.read(&mut self.in_buffer[self.in_read..]);
+                if let Ok(0) = read {
+                    self.mqtt_state.handle_socket_disconnect();
+                    Err("socket closed")?
+                };
+                read
+            };
             debug!("read: {:?}", read);
             match read {
                 Err(ref e) if e.kind() == ::std::io::ErrorKind::WouldBlock => {
                     debug!("reading from socket would block");
                     break;
-                }
-                Ok(0) => {
-                    self.mqtt_state.handle_socket_disconnect();
-                    Err("socket closed")?
                 }
                 Ok(read) => {
                     self.in_read += read;
@@ -274,6 +314,7 @@ impl ConnectionState {
                 Err(e) => Err(e)?,
             }
         }
+        self.turn_outgoing()?;
         Ok(())
     }
 

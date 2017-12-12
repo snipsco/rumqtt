@@ -1,4 +1,7 @@
 use std::time::Duration;
+use std::sync::Arc;
+
+use RustlsConfig;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ReconnectOptions {
@@ -8,18 +11,16 @@ pub enum ReconnectOptions {
 }
 
 #[derive(Clone)]
-pub enum SecurityOptions {
-    None,
-    /// username, password
-    UsernamePassword((String, String)),
-    /// ca, client cert, client key
-    Tls((String, String, String)),
-    /// roots.pem, private_key.der to sign jwt, expiry in seconds
-    GcloudIotCore((String, String, i64)),
+pub struct TlsOptions {
+    pub hostname: String,
+    pub config: Arc<RustlsConfig>,
 }
 
-
-// TODO: Add getters & make fields private
+impl TlsOptions {
+    pub fn new(hostname: String, config: ::RustlsConfig) -> TlsOptions {
+        TlsOptions { hostname, config: Arc::new(config) }
+    }
+}
 
 #[derive(Clone)]
 pub struct MqttOptions {
@@ -35,12 +36,12 @@ pub struct MqttOptions {
     pub mqtt_connection_timeout: Duration,
     /// reconnection options
     pub reconnect: ReconnectOptions,
-    /// security options
-    pub security: SecurityOptions,
     /// maximum packet size
     pub max_packet_size: usize,
     /// mqtt will
     pub last_will: Option<::mqtt3::LastWill>,
+    /// TLS configuration
+    pub tls: Option<TlsOptions>,
 }
 
 impl MqttOptions {
@@ -54,9 +55,9 @@ impl MqttOptions {
             client_id: id.into(),
             mqtt_connection_timeout: Duration::from_secs(5),
             reconnect: ReconnectOptions::AfterFirstSuccess(Duration::from_secs(10)),
-            security: SecurityOptions::None,
             max_packet_size: 100 * 1024,
             last_will: None,
+            tls: None,
         }
     }
 
@@ -97,10 +98,10 @@ impl MqttOptions {
         self
     }
 
-    /// Set security option
-    /// Supports username-password auth, tls client cert auth, gcloud iotcore jwt auth
-    pub fn set_security_opts(mut self, opts: SecurityOptions) -> Self {
-        self.security = opts;
+    /// Set tls option
+    /// Supports tls client cert
+    pub fn set_tls_opts(mut self, opts: Option<TlsOptions>) -> Self {
+        self.tls = opts;
         self
     }
 
