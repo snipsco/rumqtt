@@ -195,6 +195,22 @@ impl ConnectionState {
         use std::io::Write;
         use rustls::Session;
         loop {
+            debug!("outgoing loop");
+            debug!("1. outgoing buffer is {}/{}", self.out_buffer.position(), self.out_buffer.get_ref().len());
+            let mut did_something = false;
+            if let Some(ref mut tls) = self.tls_session {
+                if tls.wants_write() {
+                    debug!("TLS wants to write");
+                    match tls.write_tls(&mut self.connection) {
+                        Ok(some) => { did_something = true },
+                        Err(ref e) if e.kind() == ::std::io::ErrorKind::WouldBlock => {
+                            debug!("writing to socket would block");
+                            break;t 
+                        }
+                        Err(e) => Err(e)?
+                    }
+                }
+            }
             if self.out_buffer.position() == self.out_buffer.get_ref().len() as u64 {
                 match self.out_packets_rx.try_recv() {
                     Ok(packet) => {
@@ -203,12 +219,13 @@ impl ConnectionState {
                         self.out_buffer.get_mut().clear();
                         self.out_buffer.write_packet(&packet)?;
                         self.out_buffer.set_position(0);
+                        did_something = true;
                     }
-                    Err(::std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(::std::sync::mpsc::TryRecvError::Empty) => {},
                     Err(e) => Err(e)?,
                 }
             }
-            debug!("outgoing buffer is {}", self.out_buffer.get_ref().len());
+            debug!("2. outgoing buffer is {}/{}", self.out_buffer.position(), self.out_buffer.get_ref().len());
             if self.out_buffer.get_ref().len() as u64 > self.out_buffer.position() {
                 let write = if let Some(ref mut tls) = self.tls_session {
                     if tls.wants_write() {
@@ -222,14 +239,18 @@ impl ConnectionState {
                     Ok(written) => {
                         debug!("wrote {:?}", written);
                         let pos = self.out_buffer.position();
-                        self.out_buffer.set_position(pos + written as u64)
+                        self.out_buffer.set_position(pos + written as u64);
+                        did_something = true;
                     }
                     Err(ref e) if e.kind() == ::std::io::ErrorKind::WouldBlock => {
                         debug!("writing to socket would block");
-                        break;
                     }
                     Err(e) => Err(e)?,
                 }
+            }
+            debug!("3. outgoing buffer is {}/{}", self.out_buffer.position(), self.out_buffer.get_ref().len());
+            if !did_something {
+                break
             }
         }
         Ok(())
@@ -266,15 +287,20 @@ impl ConnectionState {
                 self.in_buffer.resize(self.in_read + 128, 0);
             }
             let read = if let Some(ref mut tls) = self.tls_session {
-                debug!("ssl");
                 if tls.wants_read() {
-                    debug!("want read");
-                    let raw_read = tls.read_tls(&mut self.connection);
-                    if let Ok(0) = raw_read {
-                        self.mqtt_state.handle_socket_disconnect();
-                        Err("socket closed")?
+                    debug!("TLS want read");
+                    match tls.read_tls(&mut self.connection) {
+                        Ok(0) => {
+                            self.mqtt_state.handle_socket_disconnect();
+                            Err("socket closed")?
+                        },
+                        Ok(_) => tls.process_new_packets()?,
+                        Err(ref e) if e.kind() == ::std::io::ErrorKind::WouldBlock => {
+                            debug!("reading from socket would block");
+                            break;
+                        }
+                        Err(e) => Err(e)?,
                     }
-                    tls.process_new_packets()?
                 }
                 tls.read(&mut self.in_buffer[self.in_read..])
             } else {

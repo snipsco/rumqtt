@@ -533,18 +533,61 @@ fn qos2_stress_publish_with_reconnections() {
 
 #[test]
 fn tls() {
-    loggerv::init_with_level(log::LogLevel::Debug);
+    // loggerv::init_with_level(log::LogLevel::Debug);
     let mut ssl = rumqtt::RustlsConfig::new();
     // let cafile = include_bytes!("mosquitto.org.ca.crt");
-    let cafile = include_bytes!("mosquitto.org.ca.crt");
+    //let cafile = include_bytes!("mosquitto.org.ca.crt");
+    let cafile = include_bytes!("../test-ca/ca.cert");
     let mut pcafile:&[u8] = &cafile[..];
     ssl.root_store.add_pem_file(&mut pcafile).unwrap();
-    let client_options = MqttOptions::new("keep-alive", MOSQUITTO_TLS_ADDR)
+    let client_options = MqttOptions::new("keep-alive", "localhost:8883")
         .set_keep_alive(5)
-        .set_tls_opts(Some(rumqtt::TlsOptions::new("mosquitto.org".into(), ssl)));
+        .set_tls_opts(Some(rumqtt::TlsOptions::new("localhost".into(), ssl)));
     let mut request = MqttClient::start(client_options).expect("Coudn't start");
-    assert!(request.connected());
-    std::thread::sleep(std::time::Duration::from_secs(10));
+    let count = Arc::new(AtomicUsize::new(0));
+    let final_count = count.clone();
+    let count = count.clone();
+    info!("Started");
+    request
+        .subscribe(
+            "test/basic",
+            Box::new(move |_| {
+                count.fetch_add(1, Ordering::SeqCst);
+            }),
+        )
+        .unwrap()
+        .send()
+        .unwrap();
+    info!("subbed");
+
+    let payload = format!("hello rust");
+    request
+        .publish("test/basic")
+        .unwrap()
+        .payload(payload.clone().into_bytes())
+        .send()
+        .unwrap();
+    request
+        .publish("test/basic")
+        .unwrap()
+        .qos(QoS::AtLeastOnce)
+        .payload(payload.clone().into_bytes())
+        .send()
+        .unwrap();
+    request
+        .publish("test/basic")
+        .unwrap()
+        .qos(QoS::AtLeastOnce)
+        .payload(payload.clone().into_bytes())
+        .send()
+        .unwrap();
+    /*
+    request.publish("test/basic", QoS::ExactlyOnce, payload.clone().into_bytes())
+        .unwrap();
+    */
+    thread::sleep(Duration::new(3, 0));
+
+    assert_eq!(3, final_count.load(Ordering::SeqCst));
     assert!(request.connected());
 }
 
