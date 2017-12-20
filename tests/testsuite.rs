@@ -100,7 +100,6 @@ fn basic_publishes_and_subscribes() {
     let count = count.clone();
 
     let mut request = MqttClient::start(client_options).expect("Coudn't start");
-    info!("Started");
     request
         .subscribe(
             "test/basic",
@@ -111,7 +110,6 @@ fn basic_publishes_and_subscribes() {
         .unwrap()
         .send()
         .unwrap();
-    info!("subbed");
 
     let payload = format!("hello rust");
     request
