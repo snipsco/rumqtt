@@ -3,6 +3,12 @@ rust:
   - stable
   - beta
   - nightly
+addons:
+  apt:
+    packages:
+    - mosquitto
+before_install:
+  - "cd tests/test-ca ; mosquitto -c mosquitto.conf &"
 script:
   - cargo build --verbose --all
   - cargo test --verbose --all
