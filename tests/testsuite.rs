@@ -151,8 +151,8 @@ fn alive() {
 }
 
 fn server_that_drops_connection_after_three_secs(port: u16) {
+    let server = ::std::net::TcpListener::bind(("localhost", port)).unwrap();
     ::std::thread::spawn(move || {
-        let server = ::std::net::TcpListener::bind(("localhost", port)).unwrap();
         for stream in server.incoming() {
             debug!("accepting connection");
             let mut stream = stream.unwrap();
@@ -167,12 +167,12 @@ fn server_that_drops_connection_after_three_secs(port: u16) {
             debug!("dropping connection");
         }
     });
+    std::thread::sleep(std::time::Duration::from_secs(1));
 }
 
 #[test]
 fn detect_disconnection() {
     // loggerv::init_with_level(log::LogLevel::Debug).unwrap();
-    debug!("kokoo");
     server_that_drops_connection_after_three_secs(19993);
     let client_options =
         MqttOptions::new("deco", "localhost:19993").set_reconnect_opts(ReconnectOptions::Never);

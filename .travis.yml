@@ -12,8 +12,8 @@ addons:
 before_install:
   - "cd tests/test-ca ; mosquitto -c mosquitto.conf &"
 script:
-  - cargo build --verbose --all
-  - cargo test --verbose --all
+  - cargo build --verbose --all --features test-tls-localhost
+  - cargo test --verbose --all --features test-tls-localhost
 matrix:
   allow_failures:
     - rust: nightly
