@@ -5,6 +5,8 @@ rust:
   - nightly
 addons:
   apt:
+    sources:
+    - sourceline: 'ppa:mosquitto-dev/mosquitto-ppa'
     packages:
     - mosquitto
 before_install:
