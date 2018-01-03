@@ -14,7 +14,6 @@ use mqtt3::{MqttRead, MqttWrite};
 use rumqtt::{MqttClient, MqttOptions, QoS, ReconnectOptions};
 
 const MOSQUITTO_ADDR: &'static str = "test.mosquitto.org:1883";
-const MOSQUITTO_TLS_ADDR: &'static str = "test.mosquitto.org:8883";
 
 /// Shouldn't try to reconnect if there is a connection problem
 /// during initial tcp connect.
@@ -530,12 +529,11 @@ fn qos2_stress_publish_with_reconnections() {
 */
 
 #[test]
+#[cfg(feature="test-tls-localhost")]
 fn tls() {
     // loggerv::init_with_level(log::LogLevel::Debug);
     let mut ssl = rumqtt::RustlsConfig::new();
-    // let cafile = include_bytes!("mosquitto.org.ca.crt");
-    //let cafile = include_bytes!("mosquitto.org.ca.crt");
-    let cafile = include_bytes!("../test-ca/ca.cert");
+    let cafile = include_bytes!("test-ca/ca.cert");
     let mut pcafile:&[u8] = &cafile[..];
     ssl.root_store.add_pem_file(&mut pcafile).unwrap();
     let client_options = MqttOptions::new("keep-alive", "localhost:8883")

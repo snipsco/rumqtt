@@ -22,5 +22,9 @@ error-chain = { version = "0.10", default-features = false }
 log = "0.3"
 rustls = "0.11"
 
+[features]
+default = []
+test-tls-localhost = []
+
 [dev-dependencies]
 loggerv = "0.3"
