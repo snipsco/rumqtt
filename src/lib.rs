@@ -4,7 +4,6 @@ extern crate debug_stub_derive;
 extern crate dns_lookup;
 #[macro_use]
 extern crate error_chain;
-extern crate jsonwebtoken as jwt;
 #[macro_use]
 extern crate log;
 extern crate mio;
@@ -13,6 +12,7 @@ extern crate mqtt3;
 extern crate rustls;
 #[macro_use]
 extern crate serde_derive;
+extern crate webpki;
 
 #[allow(unused_doc_comment)]
 pub mod error {

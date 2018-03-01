@@ -27,19 +27,20 @@ pub enum Connection {
 }
 
 impl Connection {
-    fn wrap(connection: mio::net::TcpStream, tls:&Option<options::TlsOptions>) -> Connection {
+    fn wrap(connection: mio::net::TcpStream, tls:&Option<options::TlsOptions>) -> Result<Connection> {
         if let Some(ref tls) = tls.as_ref() {
-            let tls_session = ClientSession::new(&tls.config, &tls.hostname);
-            Connection::Tls {
+            let hostname = ::webpki::DNSNameRef::try_from_ascii_str(&tls.hostname).map_err(|_| format!("Failed to encode hostname: {}", tls.hostname))?;
+            let tls_session = ClientSession::new(&tls.config, hostname);
+            Ok(Connection::Tls {
                 connection,
                 tls_session,
-            }
+            })
         } else {
-            Connection::Tcp {
+            Ok(Connection::Tcp {
                 connection,
                 out_buffer: Vec::with_capacity(128),
                 out_written: 0,
-            }
+            })
         }
     }
     fn enqueue_data(&mut self, buffer:&[u8]) -> Result<()> {
@@ -184,7 +185,7 @@ impl ConnectionState {
             mio::PollOpt::edge(),
         )?;
         let state = ConnectionState {
-            connection: Connection::wrap(connection, &mqtt_state.opts().tls),
+            connection: Connection::wrap(connection, &mqtt_state.opts().tls)?,
             mqtt_state,
             commands_rx,
             out_packets_tx,
@@ -207,7 +208,7 @@ impl ConnectionState {
             mio::Ready::readable() | mio::Ready::writable(),
             mio::PollOpt::edge(),
         )?;
-        self.connection = Connection::wrap(connection, &self.mqtt_state.opts().tls);
+        self.connection = Connection::wrap(connection, &self.mqtt_state.opts().tls)?;
         self.out_packets_tx = out_packets_tx;
         self.out_packets_rx = out_packets_rx;
         self.in_buffer = vec![0; 256];
@@ -224,7 +225,6 @@ impl ConnectionState {
         let mut events = mio::Events::with_capacity(1024);
         self.poll
             .poll(&mut events, timeout.or(Some(Duration::from_secs(1))))?;
-        debug!("exit poll: {:?} events", events.len());
         for event in events.iter() {
             debug!("event: {:?}", event);
             if event.token() == SOCKET_TOKEN && event.readiness().is_readable() {
@@ -295,7 +295,6 @@ impl ConnectionState {
                 Err(e) => Err(e)?,
             }
         }
-        Ok(())
     }
 
     fn whole_packet(buf: &[u8]) -> Option<usize> {
@@ -320,7 +319,6 @@ impl ConnectionState {
     }
 
     fn turn_incoming(&mut self) -> Result<()> {
-        use std::io::Read;
         use mqtt3::MqttRead;
         loop {
             if self.in_read == self.in_buffer.len() {
@@ -356,8 +354,6 @@ impl ConnectionState {
                 }
             }
         }
-        self.turn_outgoing()?;
-        Ok(())
     }
 
     fn handle_incoming_packet(&mut self, packet: ::mqtt3::Packet) -> Result<()> {

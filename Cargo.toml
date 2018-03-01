@@ -1,30 +1,39 @@
 [package]
 authors = ["tekjar <k.teza1@gmail.com>"]
-name = "rumqtt"
-version = "0.20.0"
 description = "A fast, lockfree mqtt client"
-repository = "https://github.com/AtherEnergy/rumqtt"
-readme = "README.md"
+keywords = [
+    "mqtt",
+    "iot",
+    "async",
+    "tokio",
+    "futures",
+]
 license = "Unlicense/MIT"
-keywords = ["mqtt", "iot", "async", "tokio", "futures"]
+name = "rumqtt"
+readme = "README.md"
+repository = "https://github.com/AtherEnergy/rumqtt"
+version = "0.20.0"
 
 [dependencies]
+chrono = "0.4"
 debug_stub_derive = "0.3"
-dns-lookup = "0.8.1"
+dns-lookup = "0.9"
+error-chain = "0.11"
+log = "0.4"
 mio = "0.6"
 mio-more = "0.1"
-mqtt3 = { git = "https://github.com/snipsco/mqtt3", branch="last_will_payload_is_bin" }
-chrono = "0.4"
-jsonwebtoken = "3"
+rustls = "0.12"
 serde = "1"
 serde_derive = "1"
-error-chain = { version = "0.10", default-features = false }
-log = "0.3"
-rustls = "0.11"
+webpki = "0.18.0-alpha"
+
+[dependencies.mqtt3]
+branch = "last_will_payload_is_bin"
+git = "https://github.com/snipsco/mqtt3"
+
+[dev-dependencies]
+loggerv = "0.3"
 
 [features]
 default = []
 test-tls-localhost = []
-
-[dev-dependencies]
-loggerv = "0.3"

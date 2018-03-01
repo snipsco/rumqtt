@@ -1,15 +1,8 @@
 use std::time::{Duration, Instant};
 use std::collections::VecDeque;
-use std::fs::File;
-use std::path::Path;
-use std::io::Read;
-
-use jwt::{encode, Algorithm, Header};
-use chrono::{self, Utc};
 
 use mqtt3;
 use MqttOptions;
-use ReconnectOptions;
 use error::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,7 +11,7 @@ pub enum MqttConnectionStatus {
     Handshake { initial: bool },
     /// normal running state
     Connected,
-    /// clientr will seek reconnection
+    /// client will seek reconnection
     WantConnect { when: Instant },
     /// client has been instructed to disconnect from the API
     WantDisconnect,
@@ -340,32 +333,6 @@ impl MqttState {
         self.last_pkid = mqtt3::PacketIdentifier(pkid + 1);
         self.last_pkid
     }
-}
-
-// Generates a new password for mqtt client authentication
-pub fn gen_iotcore_password<P>(key: P, expiry: i64) -> String
-where
-    P: AsRef<Path>,
-{
-    let time = Utc::now();
-    let jwt_header = Header::new(Algorithm::RS256);
-    let iat = time.timestamp();
-    let exp = time.checked_add_signed(chrono::Duration::minutes(expiry))
-        .unwrap()
-        .timestamp();
-    let claims = Claims {
-        iat: iat,
-        exp: exp,
-        aud: "crested-return-122311".to_string(),
-    };
-
-    let mut key_file =
-        File::open(key).expect("Unable to open private keyfile for gcloud iot core auth");
-    let mut key = vec![];
-    key_file
-        .read_to_end(&mut key)
-        .expect("Unable to read private key file for gcloud iot core auth till end");
-    encode(&jwt_header, &claims, &key).expect("encode error")
 }
 
 #[cfg(test)]
