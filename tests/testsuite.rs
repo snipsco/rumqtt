@@ -532,13 +532,11 @@ fn qos2_stress_publish_with_reconnections() {
 #[cfg(feature="test-tls-localhost")]
 fn tls() {
     // loggerv::init_with_level(log::LogLevel::Debug);
-    let mut ssl = rumqtt::RustlsConfig::new();
-    let cafile = include_bytes!("test-ca/ca.cert");
-    let mut pcafile:&[u8] = &cafile[..];
-    ssl.root_store.add_pem_file(&mut pcafile).unwrap();
+    let mut ssl = rumqtt::TlsOptions::new("localhost".into());
+    ssl.cafile.push("tests/test-ca/ca.cert".into());
     let client_options = MqttOptions::new("keep-alive", "localhost:8883")
         .set_keep_alive(5)
-        .set_tls_opts(Some(rumqtt::TlsOptions::new("localhost".into(), ssl)));
+        .set_tls_opts(Some(ssl));
     let mut request = MqttClient::start(client_options).expect("Coudn't start");
     let count = Arc::new(AtomicUsize::new(0));
     let final_count = count.clone();
