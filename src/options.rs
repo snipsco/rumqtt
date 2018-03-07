@@ -1,5 +1,6 @@
 use std::time::Duration;
-use std::sync::Arc;
+use std::{ fs, io, path };
+use error::Result;
 
 use RustlsConfig;
 
@@ -10,19 +11,60 @@ pub enum ReconnectOptions {
     Always(Duration),
 }
 
-#[derive(Clone)]
-pub struct TlsOptions {
-    pub hostname: String,
-    pub config: Arc<RustlsConfig>,
-}
-
-impl TlsOptions {
-    pub fn new(hostname: String, config: ::RustlsConfig) -> TlsOptions {
-        TlsOptions { hostname, config: Arc::new(config) }
+impl Default for ReconnectOptions {
+    fn default() -> ReconnectOptions {
+        ReconnectOptions::AfterFirstSuccess(Duration::from_secs(10))
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Debug)]
+pub struct TlsOptions {
+    pub hostname: String,
+    pub disable_root_store: bool,
+    pub cafile: Vec<path::PathBuf>,
+    pub capath: Vec<path::PathBuf>,
+    pub client_certs_key: Option<(path::PathBuf,path::PathBuf)>
+}
+
+impl TlsOptions {
+    pub fn new(hostname: String) -> TlsOptions {
+        TlsOptions { hostname, disable_root_store: false, cafile: vec!(), capath: vec!(), client_certs_key: None }
+    }
+
+    pub fn to_rustls_config(&self) -> Result<RustlsConfig> {
+        let mut it = RustlsConfig::new();
+        fn add_cafile(it:&mut RustlsConfig, cafile: &path::Path) -> Result<()> {
+            let mut f = io::BufReader::new(fs::File::open(cafile)?);
+            it.root_store.add_pem_file(&mut f)
+                .map_err(|_| format!("Could not read pem file: {:?}", cafile))?;
+            Ok(())
+        }
+        for cafile in &self.cafile {
+            add_cafile(&mut it, cafile)?;
+        }
+        for capath in &self.capath {
+            for cafile in fs::read_dir(capath)? {
+                add_cafile(&mut it, &cafile?.path())?;
+            }
+        }
+        if !self.disable_root_store {
+            it.root_store.add_server_trust_anchors(&::webpki_roots::TLS_SERVER_ROOTS);
+        }
+        if let Some((ref c, ref k)) = self.client_certs_key {
+            let mut f = io::BufReader::new(fs::File::open(c)?);
+            let certs = ::rustls::internal::pemfile::certs(&mut f)
+                .map_err(|_| format!("Could not read client cert pem file: {:?}", c))?;
+            let mut key = io::BufReader::new(fs::File::open(k)?);
+            let mut key = ::rustls::internal::pemfile::pkcs8_private_keys(&mut key)
+                .map_err(|_| format!("Could not read client key file: {:?}", k))?;
+            let key = key.remove(0);
+            it.set_single_client_cert(certs, key);
+        }
+        Ok(it)
+    }
+}
+
+#[derive(Clone,Default)]
 pub struct MqttOptions {
     /// broker address that you want to connect to
     pub broker_addr: String,

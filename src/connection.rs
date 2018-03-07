@@ -27,10 +27,10 @@ pub enum Connection {
 }
 
 impl Connection {
-    fn wrap(connection: mio::net::TcpStream, tls:&Option<options::TlsOptions>) -> Result<Connection> {
+    fn wrap(connection: mio::net::TcpStream, tls:Option<&options::TlsOptions>) -> Result<Connection> {
         if let Some(ref tls) = tls.as_ref() {
-            let hostname = ::webpki::DNSNameRef::try_from_ascii_str(&tls.hostname).map_err(|_| format!("Failed to encode hostname: {}", tls.hostname))?;
-            let tls_session = ClientSession::new(&tls.config, hostname);
+            let hostname = ::webpki::DNSNameRef::try_from_ascii_str(&tls.hostname).map_err(|_| format!("Failed to encode hostname: {}", &tls.hostname))?;
+            let tls_session = ClientSession::new(&::std::sync::Arc::new(tls.to_rustls_config()?), hostname);
             Ok(Connection::Tls {
                 connection,
                 tls_session,
@@ -185,7 +185,7 @@ impl ConnectionState {
             mio::PollOpt::edge(),
         )?;
         let state = ConnectionState {
-            connection: Connection::wrap(connection, &mqtt_state.opts().tls)?,
+            connection: Connection::wrap(connection, mqtt_state.opts().tls.as_ref())?,
             mqtt_state,
             commands_rx,
             out_packets_tx,
@@ -208,7 +208,7 @@ impl ConnectionState {
             mio::Ready::readable() | mio::Ready::writable(),
             mio::PollOpt::edge(),
         )?;
-        self.connection = Connection::wrap(connection, &self.mqtt_state.opts().tls)?;
+        self.connection = Connection::wrap(connection, self.mqtt_state.opts().tls.as_ref())?;
         self.out_packets_tx = out_packets_tx;
         self.out_packets_rx = out_packets_rx;
         self.in_buffer = vec![0; 256];

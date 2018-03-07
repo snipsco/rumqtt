@@ -26,6 +26,7 @@ rustls = "0.12"
 serde = "1"
 serde_derive = "1"
 webpki = "0.18.0-alpha"
+webpki-roots = "0.14"
 
 [dependencies.mqtt3]
 branch = "last_will_payload_is_bin"

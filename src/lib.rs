@@ -13,6 +13,7 @@ extern crate rustls;
 #[macro_use]
 extern crate serde_derive;
 extern crate webpki;
+extern crate webpki_roots;
 
 #[allow(unused_doc_comment)]
 pub mod error {
