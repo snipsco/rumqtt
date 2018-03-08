@@ -13,6 +13,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use mqtt3::{MqttRead, MqttWrite};
 use rumqtt::{MqttClient, MqttOptions, QoS, ReconnectOptions};
 
+#[cfg(feature="local-tests")]
+const MOSQUITTO_ADDR: &'static str = "localhost:11883";
+#[cfg(not(feature="local-tests"))]
 const MOSQUITTO_ADDR: &'static str = "test.mosquitto.org:1883";
 
 /// Shouldn't try to reconnect if there is a connection problem
@@ -20,7 +23,6 @@ const MOSQUITTO_ADDR: &'static str = "test.mosquitto.org:1883";
 #[test]
 fn inital_tcp_connect_failure() {
     // env_logger::init().unwrap();
-    // TODO: Bugfix. Client hanging when connecting to broker.hivemq.com:9999
     let client_options = MqttOptions::new("me", "localhost:9999");
 
     // Connects to a broker and returns a `request`
@@ -40,7 +42,6 @@ fn spawn_silent_server(port: u16) {
 #[test]
 fn initial_mqtt_connect_timeout_failure() {
     // loggerv::init_with_level(log::LogLevel::Debug);
-    // TODO: Change the host to remote host and fix blocks
     spawn_silent_server(19999);
     let client_options = MqttOptions::new("me", "localhost:19999");
     let result = MqttClient::start(client_options);
@@ -529,20 +530,50 @@ fn qos2_stress_publish_with_reconnections() {
 */
 
 #[test]
-#[cfg(feature="test-tls-localhost")]
+#[cfg(feature="local-tests")]
 fn tls() {
-    // loggerv::init_with_level(log::LogLevel::Debug);
     let mut ssl = rumqtt::TlsOptions::new("localhost".into());
-    ssl.cafile.push("tests/test-ca/ca.cert".into());
-    let client_options = MqttOptions::new("keep-alive", "localhost:8883")
+    ssl.cafile.push("tests/test-confs/ca.cert".into());
+    let client_options = MqttOptions::new("keep-alive", "localhost:18884")
         .set_keep_alive(5)
         .set_tls_opts(Some(ssl));
-    let mut request = MqttClient::start(client_options).expect("Coudn't start");
+    let client = MqttClient::start(client_options).expect("Coudn't start");
+    simple_ping_pong(client);
+}
+
+#[test]
+#[cfg(feature="local-tests")]
+fn tls_pwd() {
+    let mut ssl = rumqtt::TlsOptions::new("localhost".into());
+    ssl.cafile.push("tests/test-confs/ca.cert".into());
+    let mut client_options = MqttOptions::new("keep-alive", "localhost:18885")
+        .set_keep_alive(5)
+        .set_tls_opts(Some(ssl));
+    client_options.username = Some("foo".into());
+    client_options.password = Some("bar".into());
+    let client = MqttClient::start(client_options).expect("Coudn't start");
+    simple_ping_pong(client);
+}
+
+#[test]
+#[cfg(feature="local-tests")]
+fn tls_cert() {
+    let mut ssl = rumqtt::TlsOptions::new("localhost".into());
+    ssl.cafile.push("tests/test-confs/ca.cert".into());
+    ssl.client_certs_key = Some(("tests/test-confs/client.cert".into(), "tests/test-confs/client.key".into()));
+    let client_options = MqttOptions::new("keep-alive", "localhost:18886")
+        .set_keep_alive(5)
+        .set_tls_opts(Some(ssl));
+    let client = MqttClient::start(client_options).expect("Coudn't start");
+    simple_ping_pong(client);
+}
+
+fn simple_ping_pong(mut client: MqttClient) {
     let count = Arc::new(AtomicUsize::new(0));
     let final_count = count.clone();
     let count = count.clone();
     info!("Started");
-    request
+    client
         .subscribe(
             "test/basic",
             Box::new(move |_| {
@@ -555,34 +586,30 @@ fn tls() {
     info!("subbed");
 
     let payload = format!("hello rust");
-    request
+    client
         .publish("test/basic")
         .unwrap()
         .payload(payload.clone().into_bytes())
         .send()
         .unwrap();
-    request
-        .publish("test/basic")
-        .unwrap()
-        .qos(QoS::AtLeastOnce)
-        .payload(payload.clone().into_bytes())
-        .send()
-        .unwrap();
-    request
+    client
         .publish("test/basic")
         .unwrap()
         .qos(QoS::AtLeastOnce)
         .payload(payload.clone().into_bytes())
         .send()
         .unwrap();
-    /*
-    request.publish("test/basic", QoS::ExactlyOnce, payload.clone().into_bytes())
+    client
+        .publish("test/basic")
+        .unwrap()
+        .qos(QoS::AtLeastOnce)
+        .payload(payload.clone().into_bytes())
+        .send()
         .unwrap();
-    */
     thread::sleep(Duration::new(3, 0));
 
     assert_eq!(3, final_count.load(Ordering::SeqCst));
-    assert!(request.connected());
+    assert!(client.connected());
 }
 
 /*

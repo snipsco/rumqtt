@@ -27,7 +27,7 @@ openssl req -nodes \
 
 # client key + cert req
 openssl req -nodes \
-          -newkey rsa:2560 \
+          -newkey rsa:2048 \
           -keyout client.key \
           -out client.req \
           -sha256 \

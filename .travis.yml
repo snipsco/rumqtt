@@ -9,11 +9,9 @@ addons:
     - sourceline: 'ppa:mosquitto-dev/mosquitto-ppa'
     packages:
     - mosquitto
-before_install:
-  - "cd tests/test-ca ; mosquitto -c mosquitto.conf &"
 script:
-  - cargo build --verbose --all --features test-tls-localhost
-  - cargo test --verbose --all --features test-tls-localhost
-matrix:
-  allow_failures:
-    - rust: nightly
+   - cargo build --verbose --all
+   - ./.travis.sh
+ matrix:
+   allow_failures:
+     - rust: nightly
