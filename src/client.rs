@@ -6,6 +6,7 @@ use mio_more::channel::*;
 
 use MqttOptions;
 
+#[allow(unused)]
 #[derive(DebugStub)]
 pub enum Command {
     Status(#[debug_stub = ""] ::std::sync::mpsc::Sender<::state::MqttConnectionStatus>),

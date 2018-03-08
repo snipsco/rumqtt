@@ -568,6 +568,7 @@ fn tls_cert() {
     simple_ping_pong(client);
 }
 
+#[cfg(feature="local-tests")]
 fn simple_ping_pong(mut client: MqttClient) {
     let count = Arc::new(AtomicUsize::new(0));
     let final_count = count.clone();
