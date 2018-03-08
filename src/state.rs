@@ -81,26 +81,15 @@ impl MqttState {
 
         self.opts.keep_alive = Some(keep_alive);
         self.connection_status = MqttConnectionStatus::Handshake { initial };
-/*
-        let (username, password) = match self.opts.security {
-            SecurityOptions::UsernamePassword((ref username, ref password)) => {
-                (Some(username.to_owned()), Some(password.to_owned()))
-            }
-            SecurityOptions::GcloudIotCore((_, ref key, expiry)) => (
-                Some("unused".to_owned()),
-                Some(gen_iotcore_password(key, expiry)),
-            ),
-            _ => (None, None),
-        };
-*/
+
         mqtt3::Connect {
             protocol: mqtt3::Protocol::MQTT(4),
             keep_alive,
             client_id: self.opts.client_id.clone(),
             clean_session: self.opts.clean_session,
             last_will: None,
-            username: None,
-            password: None,
+            username: self.opts.username.clone(),
+            password: self.opts.password.clone(),
         }
     }
 

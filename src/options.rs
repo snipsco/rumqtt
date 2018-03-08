@@ -74,6 +74,10 @@ pub struct MqttOptions {
     pub clean_session: bool,
     /// client identifier
     pub client_id: String,
+    /// MQTT username
+    pub username: Option<String>,
+    /// MQTT password
+    pub password: Option<String>,
     /// time left for server to send a connection acknowlegment
     pub mqtt_connection_timeout: Duration,
     /// reconnection options
@@ -95,6 +99,8 @@ impl MqttOptions {
             keep_alive: Some(10),
             clean_session: true,
             client_id: id.into(),
+            username: None,
+            password: None,
             mqtt_connection_timeout: Duration::from_secs(5),
             reconnect: ReconnectOptions::AfterFirstSuccess(Duration::from_secs(10)),
             max_packet_size: 100 * 1024,
