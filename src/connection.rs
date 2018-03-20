@@ -66,14 +66,19 @@ impl Connection {
         match self {
             &mut Connection::Tcp {ref mut connection, ..} => Self::manage_result(connection.read(buffer)),
             &mut Connection::Tls {ref mut tls_session, ref mut connection} => {
-                if Self::manage_result(tls_session.read_tls(connection))? == 0 {
-                    return Ok(0)
+                if tls_session.wants_read() {
+                    if Self::manage_result(tls_session.read_tls(connection))? == 0 {
+                        debug!("recv_data: read_tls returned 0");
+                        return Ok(0)
+                    }
                 }
                 tls_session.process_new_packets()?;
                 if tls_session.wants_write() {
                     tls_session.write_tls(connection)?;
                 }
-                Ok(tls_session.read(buffer)?)
+                let read = tls_session.read(buffer)?;
+                debug!("recv_data: tls_session.read returned {:?}", read);
+                Ok(read)
             }
         }
     }
@@ -319,9 +324,12 @@ impl ConnectionState {
 
     fn turn_incoming(&mut self) -> Result<()> {
         use mqtt3::MqttRead;
+        debug!("incoming");
         loop {
+            debug!("incoming loop");
             if self.in_read == self.in_buffer.len() {
-                self.in_buffer.resize(self.in_read + 128, 0);
+                debug!("resize {} - {}", self.in_buffer.len(), self.in_read * 2);
+                self.in_buffer.resize(self.in_read * 2, 0);
             }
             let read = self.connection.recv_data(&mut self.in_buffer[self.in_read..]);
             debug!("read: {:?}", read);
