@@ -73,7 +73,7 @@ impl MqttClient {
     }
 
     pub fn subscribe<T: ToTopicPath>(
-        &mut self,
+        &self,
         topic_path: T,
         callback: SubscriptionCallback,
     ) -> Result<SubscriptionBuilder> {
@@ -88,7 +88,7 @@ impl MqttClient {
         })
     }
 
-    pub fn publish<T: ToTopicPath>(&mut self, topic_path: T) -> Result<PublishBuilder> {
+    pub fn publish<T: ToTopicPath>(&self, topic_path: T) -> Result<PublishBuilder> {
         Ok(PublishBuilder {
             client: self,
             it: Publish {
@@ -100,17 +100,17 @@ impl MqttClient {
         })
     }
 
-    pub fn connected(&mut self) -> bool {
+    pub fn connected(&self) -> bool {
         self.status().map(|s| s == ::state::MqttConnectionStatus::Connected).unwrap_or(false)
     }
 
-    pub fn status(&mut self) -> Result<::state::MqttConnectionStatus> {
+    pub fn status(&self) -> Result<::state::MqttConnectionStatus> {
         let (tx, rx) = ::std::sync::mpsc::channel();
         self.send_command(Command::Status(tx))?;
         Ok(rx.recv().map_err(|_| "Client thread looks dead")?)
     }
 
-    fn send_command(&mut self, command: Command) -> Result<()> {
+    fn send_command(&self, command: Command) -> Result<()> {
         self.nw_request_tx
             .send(command)
             .map_err(|_| "failed to send mqtt command to client thread")?;
@@ -130,7 +130,7 @@ pub struct Subscription {
 
 #[must_use]
 pub struct SubscriptionBuilder<'a> {
-    client: &'a mut MqttClient,
+    client: &'a MqttClient,
     it: Subscription,
 }
 
@@ -167,7 +167,7 @@ pub struct Publish {
 
 #[must_use]
 pub struct PublishBuilder<'a> {
-    client: &'a mut MqttClient,
+    client: &'a MqttClient,
     it: Publish,
 }
 

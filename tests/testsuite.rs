@@ -99,7 +99,7 @@ fn basic_publishes_and_subscribes() {
     let final_count = count.clone();
     let count = count.clone();
 
-    let mut request = MqttClient::start(client_options).expect("Coudn't start");
+    let request = MqttClient::start(client_options).expect("Coudn't start");
     request
         .subscribe(
             "test/basic",
@@ -145,7 +145,7 @@ fn basic_publishes_and_subscribes() {
 fn alive() {
     // loggerv::init_with_level(log::LogLevel::Debug);
     let client_options = MqttOptions::new("keep-alive", MOSQUITTO_ADDR).set_keep_alive(5);
-    let mut request = MqttClient::start(client_options).expect("Coudn't start");
+    let request = MqttClient::start(client_options).expect("Coudn't start");
     assert!(request.connected());
     std::thread::sleep(std::time::Duration::from_secs(10));
     assert!(request.connected());
@@ -177,7 +177,7 @@ fn detect_disconnection() {
     server_that_drops_connection_after_three_secs(19993);
     let client_options =
         MqttOptions::new("deco", "localhost:19993").set_reconnect_opts(ReconnectOptions::Never);
-    let mut request = MqttClient::start(client_options).expect("Coudn't start");
+    let request = MqttClient::start(client_options).expect("Coudn't start");
     assert!(request.connected());
     std::thread::sleep(std::time::Duration::from_secs(5));
     debug!("alive?");
@@ -190,7 +190,7 @@ fn reconnection_on_drop() {
     server_that_drops_connection_after_three_secs(19994);
     let client_options = MqttOptions::new("reco", "localhost:19994")
         .set_reconnect_opts(ReconnectOptions::Always(Duration::from_secs(1)));
-    let mut request = MqttClient::start(client_options).expect("Coudn't start");
+    let request = MqttClient::start(client_options).expect("Coudn't start");
     assert!(request.connected());
     std::thread::sleep(std::time::Duration::from_secs(5));
     assert!(request.connected());
@@ -219,7 +219,7 @@ fn simple_reconnection() {
     let msg_callback = MqttCallback::new().on_message(counter_cb);
 
     // Connects to a broker and returns a `request`
-    let mut request = MqttClient::start(client_options, Some(msg_callback)).expect("Coudn't start");
+    let request = MqttClient::start(client_options, Some(msg_callback)).expect("Coudn't start");
 
     // Register message callback and subscribe
     let topics = vec![("test/reconnect", QoS::Level2)];
@@ -257,7 +257,7 @@ fn acked_message() {
     };
 
     // Connects to a broker and returns a `request`
-    let mut request = MqttClient::start(client_options);
+    let request = MqttClient::start(client_options);
     request.subscribe_object(Subscription{
     }).expect("Couldn't start");
     request.userdata_publish("test/qos1/ack",
@@ -313,7 +313,7 @@ fn will() {
 #[test]
 fn retained_messages() {
     let client_options = MqttOptions::new("retain", MOSQUITTO_ADDR);
-    let mut client = MqttClient::start(client_options).expect("Coudn't start");
+    let client = MqttClient::start(client_options).expect("Coudn't start");
     let (tx, rx) = std::sync::mpsc::channel();
 
     client
@@ -327,7 +327,7 @@ fn retained_messages() {
     thread::sleep(Duration::new(3, 0));
 
     let client_options = MqttOptions::new("retain_2", MOSQUITTO_ADDR);
-    let mut client_2 = MqttClient::start(client_options).expect("Coudn't start");
+    let client_2 = MqttClient::start(client_options).expect("Coudn't start");
     client_2
         .subscribe(
             "test/retain",
