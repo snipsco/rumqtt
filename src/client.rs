@@ -25,20 +25,24 @@ impl MqttClient {
     /// Returns 'Command' and handles reqests from it.
     /// Also handles network events, reconnections and retransmissions.
     pub fn start(opts: MqttOptions) -> Result<Self> {
+        let id = opts.client_id.clone();
+        debug!("{}: Client start", id);
         let (commands_tx, commands_rx) = sync_channel(10);
         let mut connection = ::connection::start(opts, commands_rx)?;
+        debug!("{}: Spawning client thread", id);
         ::std::thread::spawn(move || {
             'outer: loop {
-                debug!("Entering normal operation loop");
+                debug!("{}: Entering normal operation loop", id);
                 loop {
                     match connection.turn(None) {
                         Ok(_) => {}
                         Err(e) => {
-                            error!("Disconnected: ({:?})", e);
+                            error!("{} Disconnected: ({:?})", id, e);
                             break;
                         }
                     }
                 }
+                debug!("{}: Entering reconnecting loop", id);
                 loop {
                     if let ::state::MqttConnectionStatus::WantConnect { when } =
                         connection.state().status()

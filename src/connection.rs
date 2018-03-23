@@ -51,7 +51,7 @@ impl Connection {
                 tls_session.write(buffer)?;
             }
         };
-        debug!("Wants send ? {:?}", self.wants_send());
+        trace!("Wants send ? {:?}", self.wants_send());
         Ok(())
     }
     fn manage_result(it: ::std::io::Result<usize>) -> Result<usize> {
@@ -68,7 +68,7 @@ impl Connection {
             &mut Connection::Tls {ref mut tls_session, ref mut connection} => {
                 if tls_session.wants_read() {
                     if Self::manage_result(tls_session.read_tls(connection))? == 0 {
-                        debug!("recv_data: read_tls returned 0");
+                        trace!("recv_data: read_tls returned 0");
                         return Ok(0)
                     }
                 }
@@ -77,13 +77,13 @@ impl Connection {
                     tls_session.write_tls(connection)?;
                 }
                 let read = tls_session.read(buffer)?;
-                debug!("recv_data: tls_session.read returned {:?}", read);
+                trace!("recv_data: tls_session.read returned {:?}", read);
                 Ok(read)
             }
         }
     }
     fn send_data(&mut self) -> Result<usize> {
-        debug!("Trying to send some bytes");
+        trace!("Trying to send some bytes");
         let sent = match self {
             &mut Connection::Tcp {ref mut out_buffer, ref mut connection, ref mut out_written} => {
                 let written = Self::manage_result(connection.write(out_buffer))?;
@@ -96,7 +96,7 @@ impl Connection {
             }
             &mut Connection::Tls {ref mut tls_session, ref mut connection} => tls_session.write_tls(connection),
         };
-        debug!("Sent {:?}", sent);
+        trace!("Sent {:?}", sent);
         Self::manage_result(sent)
     }
     fn wants_send(&self) -> bool {
@@ -128,15 +128,19 @@ pub struct ConnectionState {
 }
 
 pub fn start(opts: MqttOptions, commands_rx: Receiver<Command>) -> Result<ConnectionState> {
+    info!("{}: Connection start", opts.client_id);
     let mqtt_state = MqttState::new(opts);
     let mut connection = ConnectionState::new(mqtt_state, commands_rx)?;
     connection.wait_for_connack()?;
-    debug!("Connection established");
+    info!("{}: Connection established", connection.id());
     Ok(connection)
 }
 
-
 impl ConnectionState {
+    fn id(&self) -> &str {
+        &self.mqtt_state.opts().client_id
+    }
+
     fn tcp_connect(broker: &str) -> Result<::mio::tcp::TcpStream> {
         let (host, port) = if broker.contains(":") {
             let mut tokens = broker.split(":");
@@ -150,7 +154,7 @@ impl ConnectionState {
         } else {
             (broker, None)
         };
-        debug!("Connecting to broker:{} -> {}:{:?}", broker, host, port);
+        trace!("Connecting to broker:{} -> {}:{:?}", broker, host, port);
         let ips = ::dns_lookup::lookup_host(host)?;
         ips.into_iter()
             .filter_map(|ip| {
@@ -168,6 +172,7 @@ impl ConnectionState {
     }
 
     fn new(mut mqtt_state: MqttState, commands_rx: Receiver<Command>) -> Result<ConnectionState> {
+        debug!("{} new connection", mqtt_state.opts().client_id);
         let poll = mio::Poll::new()?;
         let connection = Self::tcp_connect(&mqtt_state.opts().broker_addr)?;
         let (out_packets_tx, out_packets_rx) = channel();
@@ -204,7 +209,6 @@ impl ConnectionState {
     pub fn reconnect(&mut self) -> Result<()> {
         let connection = Self::tcp_connect(&self.mqtt_state.opts().broker_addr)?;
         let (out_packets_tx, out_packets_rx) = channel();
-        debug!("deregistering");
         self.poll.deregister(self.connection.mio_connection())?;
         self.poll.register(
             &connection,
@@ -230,7 +234,7 @@ impl ConnectionState {
         self.poll
             .poll(&mut events, timeout.or(Some(Duration::from_secs(1))))?;
         for event in events.iter() {
-            debug!("event: {:?}", event);
+            trace!("event: {:?}", event);
             if event.token() == SOCKET_TOKEN && event.readiness().is_readable() {
                 self.turn_incoming()?;
             }
@@ -290,7 +294,7 @@ impl ConnectionState {
             match self.out_packets_rx.try_recv() {
                 Ok(packet) => {
                     use mqtt3::MqttWrite;
-                    debug!("Enqueue: {:?}", packet);
+                    debug!("Send: {:?}", packet);
                     let mut buf = ::std::io::Cursor::new(vec!());
                     buf.write_packet(&packet)?;
                     self.connection.enqueue_data(&buf.into_inner())?
@@ -314,7 +318,7 @@ impl ConnectionState {
                 break;
             }
         }
-        debug!("wanted: {}, have: {}", maybe_length, buf.len());
+        trace!("wanted: {}, have: {}", maybe_length, buf.len());
         if maybe_length <= buf.len() {
             Some(maybe_length)
         } else {
@@ -324,15 +328,15 @@ impl ConnectionState {
 
     fn turn_incoming(&mut self) -> Result<()> {
         use mqtt3::MqttRead;
-        debug!("incoming");
+        trace!("incoming");
         loop {
-            debug!("incoming loop");
+            trace!("incoming loop");
             if self.in_read == self.in_buffer.len() {
-                debug!("resize {} - {}", self.in_buffer.len(), self.in_read * 2);
+                trace!("resize {} - {}", self.in_buffer.len(), self.in_read * 2);
                 self.in_buffer.resize(self.in_read * 2, 0);
             }
             let read = self.connection.recv_data(&mut self.in_buffer[self.in_read..]);
-            debug!("read: {:?}", read);
+            trace!("read: {:?}", read);
             match read {
                 Err(e) => {
                     self.mqtt_state.handle_socket_disconnect();
@@ -347,7 +351,10 @@ impl ConnectionState {
                     {
                         let packet = (&self.in_buffer[used..]).read_packet()?;
                         used += packet_size;
-                        debug!("received: {:?}", packet);
+                        match packet {
+                            mqtt3::Packet::Publish(ref msg) => debug!("{} Received message on {}", self.id(), msg.topic_name),
+                            ref msg => debug!("{} Received control message {:?}", self.id(), msg),
+                        };
                         self.handle_incoming_packet(packet)?
                     }
                     if used > 0 {
@@ -393,19 +400,19 @@ impl ConnectionState {
     }
 
     fn consider_ping(&mut self) -> Result<()> {
-        debug!("Enter consider ping");
+        trace!("Enter consider ping");
         if self.state().is_ping_required() {
-            debug!("Handling ping");
+            trace!("Handling ping");
             self.mqtt_state.handle_outgoing_ping()?;
             debug!("Sending ping");
             self.send_packet(mqtt3::Packet::Pingreq)?;
         }
-        debug!("Done consider ping");
+        trace!("Done consider ping");
         Ok(())
     }
 
     fn handle_command(&mut self, command: Command) -> Result<()> {
-        debug!("handle command : {:?}", command);
+        trace!("handle command : {:?}", command);
         match command {
             Command::Publish(publish) => {
                 let publish = mqtt3::Publish {
