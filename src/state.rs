@@ -124,6 +124,8 @@ impl MqttState {
     }
 
     pub fn handle_reconnection(&mut self) -> Option<VecDeque<mqtt3::Publish>> {
+        self.await_pingresp = false;
+        self.reset_last_control_at();
         if self.opts.clean_session {
             None
         } else {
