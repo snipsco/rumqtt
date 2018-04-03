@@ -33,7 +33,7 @@ branch = "last_will_payload_is_bin"
 git = "https://github.com/snipsco/mqtt3"
 
 [dev-dependencies]
-loggerv = "0.3"
+loggerv = "0.7"
 
 [features]
 default = []

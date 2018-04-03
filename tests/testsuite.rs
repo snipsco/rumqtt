@@ -29,15 +29,6 @@ fn inital_tcp_connect_failure() {
     assert!(MqttClient::start(client_options).is_err());
 }
 
-fn spawn_silent_server(port: u16) {
-    use std::io::Read;
-    let server = ::std::net::TcpListener::bind(("localhost", port)).unwrap();
-    ::std::thread::spawn(move || {
-        let mut stream = server.incoming().next().unwrap().unwrap().bytes();
-        while let Some(_) = stream.next() {}
-    });
-}
-
 // After connecting to tcp, should timeout error if it didn't receive CONNACK
 #[test]
 fn initial_mqtt_connect_timeout_failure() {
@@ -47,21 +38,6 @@ fn initial_mqtt_connect_timeout_failure() {
     let result = MqttClient::start(client_options);
     assert!(result.is_err());
     assert!(result.err().unwrap().description().contains("connack"));
-}
-
-fn spawn_server_after(port: u16, delay: Duration) {
-    ::std::thread::spawn(move || {
-        ::std::thread::sleep(delay);
-        let server = ::std::net::TcpListener::bind(("localhost", port)).unwrap();
-        let mut stream = server.incoming().next().unwrap().unwrap();
-        let connect_packet = stream.read_packet().unwrap();
-        stream
-            .write_packet(&mqtt3::Packet::Connack(mqtt3::Connack {
-                session_present: false,
-                code: mqtt3::ConnectReturnCode::Accepted,
-            }))
-            .unwrap();
-    });
 }
 
 // Should reconnect at initial connection if reconnect set to Always
@@ -151,30 +127,10 @@ fn alive() {
     assert!(request.connected());
 }
 
-fn server_that_drops_connection_after_three_secs(port: u16) {
-    let server = ::std::net::TcpListener::bind(("localhost", port)).unwrap();
-    ::std::thread::spawn(move || {
-        for stream in server.incoming() {
-            debug!("accepting connection");
-            let mut stream = stream.unwrap();
-            let connect_packet = stream.read_packet();
-            stream
-                .write_packet(&mqtt3::Packet::Connack(mqtt3::Connack {
-                    session_present: false,
-                    code: mqtt3::ConnectReturnCode::Accepted,
-                }))
-                .unwrap();
-            std::thread::sleep(std::time::Duration::from_secs(3));
-            debug!("dropping connection");
-        }
-    });
-    std::thread::sleep(std::time::Duration::from_secs(1));
-}
-
 #[test]
 fn detect_disconnection() {
     // loggerv::init_with_level(log::LogLevel::Debug).unwrap();
-    server_that_drops_connection_after_three_secs(19993);
+    spawn_server_that_drops_connection_after_three_secs(19993);
     let client_options =
         MqttOptions::new("deco", "localhost:19993").set_reconnect_opts(ReconnectOptions::Never);
     let request = MqttClient::start(client_options).expect("Coudn't start");
@@ -186,8 +142,8 @@ fn detect_disconnection() {
 
 #[test]
 fn reconnection_on_drop() {
-    // loggerv::init_with_level(log::LogLevel::Debug).unwrap();
-    server_that_drops_connection_after_three_secs(19994);
+    // loggerv::init_with_level(log::Level::Debug).unwrap();
+    spawn_server_that_drops_connection_after_three_secs(19994);
     let client_options = MqttOptions::new("reco", "localhost:19994")
         .set_reconnect_opts(ReconnectOptions::Always(Duration::from_secs(1)));
     let request = MqttClient::start(client_options).expect("Coudn't start");
@@ -569,7 +525,7 @@ fn tls_cert() {
 }
 
 #[cfg(feature="local-tests")]
-fn simple_ping_pong(mut client: MqttClient) {
+fn simple_ping_pong(client: MqttClient) {
     let count = Arc::new(AtomicUsize::new(0));
     let final_count = count.clone();
     let count = count.clone();
@@ -661,3 +617,49 @@ fn simple_ping_pong(mut client: MqttClient) {
 //     assert!(50 == final_count.load(Ordering::SeqCst));
 // }
 */
+
+
+fn spawn_silent_server(port: u16) {
+    use std::io::Read;
+    let server = ::std::net::TcpListener::bind(("localhost", port)).unwrap();
+    ::std::thread::spawn(move || {
+        let mut stream = server.incoming().next().unwrap().unwrap().bytes();
+        while let Some(_) = stream.next() {}
+    });
+}
+
+fn spawn_server_after(port: u16, delay: Duration) {
+    ::std::thread::spawn(move || {
+        ::std::thread::sleep(delay);
+        let server = ::std::net::TcpListener::bind(("localhost", port)).unwrap();
+        let mut stream = server.incoming().next().unwrap().unwrap();
+        let connect_packet = stream.read_packet().unwrap();
+        stream
+            .write_packet(&mqtt3::Packet::Connack(mqtt3::Connack {
+                session_present: false,
+                code: mqtt3::ConnectReturnCode::Accepted,
+            }))
+            .unwrap();
+    });
+}
+
+fn spawn_server_that_drops_connection_after_three_secs(port: u16) {
+    let server = ::std::net::TcpListener::bind(("localhost", port)).unwrap();
+    ::std::thread::spawn(move || {
+        for stream in server.incoming() {
+            debug!("accepting connection");
+            let mut stream = stream.unwrap();
+            let connect_packet = stream.read_packet();
+            stream
+                .write_packet(&mqtt3::Packet::Connack(mqtt3::Connack {
+                    session_present: false,
+                    code: mqtt3::ConnectReturnCode::Accepted,
+                }))
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            debug!("dropping connection");
+        }
+    });
+    std::thread::sleep(std::time::Duration::from_secs(1));
+}
+

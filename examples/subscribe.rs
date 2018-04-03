@@ -12,7 +12,7 @@ fn main() {
     let mqtt_opts = MqttOptions::new("rumqtt-core", "127.0.0.1:1883")
         .set_reconnect_opts(ReconnectOptions::AfterFirstSuccess(Duration::from_secs(10)));
 
-    let mut client = MqttClient::start(mqtt_opts).unwrap();
+    let client = MqttClient::start(mqtt_opts).unwrap();
 
     client
         .subscribe(
