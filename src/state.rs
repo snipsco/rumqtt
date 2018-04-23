@@ -527,7 +527,7 @@ mod test {
 
     #[test]
     fn disconnect_handle_should_reset_everything_in_clean_session() {
-        let mut mqtt = MqttState::new(MqttOptions::new("test-id", "127.0.0.1:1883"));
+        let mut mqtt = MqttState::new(MqttOptions::new("test-id", "127.0.0.1:1883").set_clean_session(true));
         mqtt.await_pingresp = true;
         // QoS1 Publish
         let publish = Publish {
@@ -616,7 +616,7 @@ mod test {
 
     #[test]
     fn connack_handle_should_not_return_list_of_incomplete_messages_to_be_sent_in_clean_session() {
-        let mut mqtt = MqttState::new(MqttOptions::new("test-id", "127.0.0.1:1883"));
+        let mut mqtt = MqttState::new(MqttOptions::new("test-id", "127.0.0.1:1883").set_clean_session(true));
 
         let publish = Publish {
             dup: false,
@@ -665,7 +665,7 @@ mod test {
 
         if let Ok(_) = mqtt.handle_incoming_connack(connack) {
             if let Some(v) = mqtt.handle_reconnection() {
-                assert_eq!(v.len(), 3);
+                assert_eq!(v.1.len(), 3);
             } else {
                 panic!("Should return publishes to be retransmitted");
             }

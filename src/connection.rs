@@ -83,10 +83,13 @@ impl Connection {
         }
     }
     fn send_data(&mut self) -> Result<usize> {
-        trace!("Trying to send some bytes");
-        let sent = match self {
+        trace!("Trying to send bytes");
+        match self {
             &mut Connection::Tcp {ref mut out_buffer, ref mut connection, ref mut out_written} => {
-                let written = Self::manage_result(connection.write(out_buffer))?;
+                trace!("out_buffer: {}", out_buffer.len());
+                trace!("out_written: {}", out_written);
+                let written = Self::manage_result(connection.write(&out_buffer[*out_written..]))?;
+                trace!("written more: {}", written);
                 *out_written += written;
                 if out_buffer.len() == *out_written {
                     out_buffer.clear();
@@ -94,10 +97,9 @@ impl Connection {
                 }
                 Ok(written)
             }
-            &mut Connection::Tls {ref mut tls_session, ref mut connection} => tls_session.write_tls(connection),
-        };
-        trace!("Sent {:?}", sent);
-        Self::manage_result(sent)
+            &mut Connection::Tls {ref mut tls_session, ref mut connection} => 
+                Self::manage_result(tls_session.write_tls(connection))
+        }
     }
     fn wants_send(&self) -> bool {
         match self {

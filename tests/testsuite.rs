@@ -120,7 +120,7 @@ fn basic_publishes_and_subscribes() {
 #[test]
 fn alive() {
     // loggerv::init_with_level(log::LogLevel::Debug);
-    let client_options = MqttOptions::new("keep-alive", MOSQUITTO_ADDR).set_keep_alive(5);
+    let client_options = MqttOptions::new("keep-alive", MOSQUITTO_ADDR).set_keep_alive(5).set_clean_session(true);
     let request = MqttClient::start(client_options).expect("Coudn't start");
     assert!(request.connected());
     std::thread::sleep(std::time::Duration::from_secs(10));
@@ -268,7 +268,7 @@ fn will() {
 /// INSTANTLY publish them to new subscritions
 #[test]
 fn retained_messages() {
-    let client_options = MqttOptions::new("retain", MOSQUITTO_ADDR);
+    let client_options = MqttOptions::new("retain", MOSQUITTO_ADDR).set_clean_session(true);
     let client = MqttClient::start(client_options).expect("Coudn't start");
     let (tx, rx) = std::sync::mpsc::channel();
 
