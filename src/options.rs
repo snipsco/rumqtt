@@ -97,7 +97,7 @@ impl MqttOptions {
         MqttOptions {
             broker_addr: addr.into(),
             keep_alive: Some(10),
-            clean_session: true,
+            clean_session: false,
             client_id: id.into(),
             username: None,
             password: None,

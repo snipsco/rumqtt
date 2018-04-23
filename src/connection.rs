@@ -373,9 +373,14 @@ impl ConnectionState {
     fn handle_incoming_packet(&mut self, packet: ::mqtt3::Packet) -> Result<()> {
         match packet {
             mqtt3::Packet::Connack(connack) => {
+                trace!("Handle incoming connack");
                 self.mqtt_state.handle_incoming_connack(connack)?;
-                if let Some(msgs) = self.mqtt_state.handle_reconnection() {
-                    for msg in msgs {
+                if let Some(state) = self.mqtt_state.handle_reconnection() {
+                    trace!("State refresh after reco: {:?}", state);
+                    for msg in state.0 {
+                        self.send_packet(mqtt3::Packet::Subscribe(msg))?;
+                    }
+                    for msg in state.1 {
                         self.send_packet(mqtt3::Packet::Publish(msg))?;
                     }
                 }

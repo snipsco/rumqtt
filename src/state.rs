@@ -123,13 +123,25 @@ impl MqttState {
         }
     }
 
-    pub fn handle_reconnection(&mut self) -> Option<VecDeque<mqtt3::Publish>> {
+    pub fn handle_reconnection(&mut self) -> Option<(Option<mqtt3::Subscribe>, VecDeque<mqtt3::Publish>)> {
         self.await_pingresp = false;
         self.reset_last_control_at();
         if self.opts.clean_session {
             None
         } else {
-            Some(self.outgoing_pub.clone())
+            let sub = if self.subscriptions.len() > 0 {
+                Some(mqtt3::Subscribe {
+                    pid: self.next_pkid(), 
+                    topics: self.subscriptions.iter().map(|s| {
+                        ::mqtt3::SubscribeTopic {
+                            topic_path: s.topic_path.path.clone(),
+                            qos: s.qos,
+                        }}).collect()
+            })
+            } else {
+                None
+            };
+            Some((sub, self.outgoing_pub.clone()))
         }
     }
 

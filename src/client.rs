@@ -47,9 +47,9 @@ impl MqttClient {
                     if let ::state::MqttConnectionStatus::WantConnect { when } =
                         connection.state().status()
                     {
-                        info!("Will try to reconnect at {:?}", when);
                         let now = ::std::time::Instant::now();
                         if now < when {
+                            info!("Will try to reconnecct in {} secs.", (when-now).as_secs());
                             ::std::thread::sleep(when-now);
                         }
                     } else {
