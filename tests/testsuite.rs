@@ -118,6 +118,79 @@ fn basic_publishes_and_subscribes() {
 }
 
 #[test]
+fn publishes_and_subscribes_and_unsubscribes() {
+    // loggerv::init_with_level(log::LogLevel::Debug);
+    let client_options = MqttOptions::new("pubsubunsub", MOSQUITTO_ADDR);
+    let count = Arc::new(AtomicUsize::new(0));
+    let final_count = count.clone();
+    let count = count.clone();
+
+    let count2 = Arc::new(AtomicUsize::new(0));
+    let final_count2 = count2.clone();
+    let count2 = count2.clone();
+
+    let request = MqttClient::start(client_options).expect("Coudn't start");
+    let token = request
+        .subscribe(
+            "test/pubsubunsub",
+            Box::new(move |_| {
+                count.fetch_add(1, Ordering::SeqCst);
+            }),
+        )
+        .unwrap()
+        .send()
+        .unwrap();
+
+    let token2 = request
+        .subscribe(
+            "test/pubsubunsub",
+            Box::new(move |_| {
+                count2.fetch_add(1, Ordering::SeqCst);
+            }),
+        )
+        .unwrap()
+        .send()
+        .unwrap();
+
+    let payload = format!("hello rust");
+    request
+        .publish("test/pubsubunsub")
+        .unwrap()
+        .payload(payload.clone().into_bytes())
+        .send()
+        .unwrap();
+
+    thread::sleep(Duration::from_secs(1));
+    request.unsubscribe(token).unwrap();
+    thread::sleep(Duration::from_secs(1));
+
+    request
+        .publish("test/pubsubunsub")
+        .unwrap()
+        .payload(payload.clone().into_bytes())
+        .send()
+        .unwrap();
+
+    thread::sleep(Duration::from_secs(1));
+
+    request.unsubscribe(token2).unwrap();
+    thread::sleep(Duration::from_secs(1));
+
+    request
+        .publish("test/pubsubunsub")
+        .unwrap()
+        .payload(payload.clone().into_bytes())
+        .send()
+        .unwrap();
+
+    thread::sleep(Duration::from_secs(1));
+
+    assert_eq!(1, final_count.load(Ordering::SeqCst));
+    assert_eq!(2, final_count2.load(Ordering::SeqCst));
+}
+
+
+#[test]
 fn alive() {
     // loggerv::init_with_level(log::LogLevel::Debug);
     let client_options = MqttOptions::new("keep-alive", MOSQUITTO_ADDR).set_keep_alive(5).set_clean_session(true);

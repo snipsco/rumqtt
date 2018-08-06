@@ -389,6 +389,7 @@ impl ConnectionState {
                 self.turn_command()?;
             }
             mqtt3::Packet::Suback(suback) => self.mqtt_state.handle_incoming_suback(suback)?,
+            mqtt3::Packet::Unsuback(packet_identifier) => self.mqtt_state.handle_incoming_unsuback(packet_identifier)?,
             mqtt3::Packet::Publish(publish) => {
                 let (_, server) = self.mqtt_state.handle_incoming_publish(publish)?;
                 if let Some(server) = server {
@@ -436,6 +437,11 @@ impl ConnectionState {
             Command::Subscribe(sub) => {
                 let packet = self.mqtt_state.handle_outgoing_subscribe(vec![sub])?;
                 self.send_packet(mqtt3::Packet::Subscribe(packet))?
+            }
+            Command::Unsubscribe(token) => {
+                if let Some(packet) = self.mqtt_state.handle_outgoing_unsubscribe(vec![token.id])? {
+                    self.send_packet(mqtt3::Packet::Unsubscribe(packet))?
+                }
             }
             Command::Status(tx) => {
                 let _ = tx.send(self.state().status());

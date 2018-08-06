@@ -4,6 +4,8 @@ use mqtt3::{QoS, ToTopicPath, TopicPath};
 
 use mio_more::channel::*;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use MqttOptions;
 
 #[allow(unused)]
@@ -11,6 +13,7 @@ use MqttOptions;
 pub enum Command {
     Status(#[debug_stub = ""] ::std::sync::mpsc::Sender<::state::MqttConnectionStatus>),
     Subscribe(Subscription),
+    Unsubscribe(SubscriptionToken),
     Publish(Publish),
     Connect,
     Disconnect,
@@ -18,6 +21,7 @@ pub enum Command {
 
 pub struct MqttClient {
     nw_request_tx: SyncSender<Command>,
+    subscription_id_source: AtomicUsize
 }
 
 impl MqttClient {
@@ -73,6 +77,7 @@ impl MqttClient {
 
         Ok(MqttClient {
             nw_request_tx: commands_tx,
+            subscription_id_source: AtomicUsize::new(0),
         })
     }
 
@@ -84,12 +89,16 @@ impl MqttClient {
         Ok(SubscriptionBuilder {
             client: self,
             it: Subscription {
-                id: None,
+                id: self.subscription_id_source.fetch_add(1, Ordering::Relaxed),
                 topic_path: topic_path.to_topic_path()?,
                 qos: ::mqtt3::QoS::AtMostOnce,
                 callback,
             },
         })
+    }
+
+    pub fn unsubscribe(&self, token: SubscriptionToken) -> Result<()> {
+        self.send_command(Command::Unsubscribe(token))
     }
 
     pub fn publish<T: ToTopicPath>(&self, topic_path: T) -> Result<PublishBuilder> {
@@ -126,7 +135,7 @@ pub type SubscriptionCallback = Box<Fn(&::mqtt3::Publish) + Send>;
 
 #[derive(DebugStub)]
 pub struct Subscription {
-    pub id: Option<String>,
+    pub id: usize,
     pub topic_path: TopicPath,
     pub qos: ::mqtt3::QoS,
     #[debug_stub = ""] pub callback: SubscriptionCallback,
@@ -139,16 +148,6 @@ pub struct SubscriptionBuilder<'a> {
 }
 
 impl<'a> SubscriptionBuilder<'a> {
-    pub fn id<S: ToString>(self, s: S) -> SubscriptionBuilder<'a> {
-        let SubscriptionBuilder { client, it } = self;
-        SubscriptionBuilder {
-            client,
-            it: Subscription {
-                id: Some(s.to_string()),
-                ..it
-            },
-        }
-    }
     pub fn qos(self, qos: QoS) -> SubscriptionBuilder<'a> {
         let SubscriptionBuilder { client, it } = self;
         SubscriptionBuilder {
@@ -156,9 +155,16 @@ impl<'a> SubscriptionBuilder<'a> {
             it: Subscription { qos, ..it },
         }
     }
-    pub fn send(self) -> Result<()> {
-        self.client.send_command(Command::Subscribe(self.it))
+    pub fn send(self) -> Result<SubscriptionToken> {
+        let token = SubscriptionToken { id: self.it.id};
+        self.client.send_command(Command::Subscribe(self.it))?;
+        Ok(token)
     }
+}
+
+#[derive(Debug)]
+pub struct SubscriptionToken {
+    pub id: usize
 }
 
 #[derive(Debug)]
