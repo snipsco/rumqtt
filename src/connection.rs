@@ -310,7 +310,7 @@ impl ConnectionState {
     fn whole_packet(buf: &[u8]) -> Option<usize> {
         let mut maybe_length = 0usize;
         for i in 0..4 {
-            if i + 1 > buf.len() {
+            if i + 1 >= buf.len() {
                 return None;
             }
             let byte = buf[i + 1];
