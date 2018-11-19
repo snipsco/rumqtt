@@ -29,7 +29,9 @@ pub enum Connection {
 impl Connection {
     fn wrap(connection: mio::net::TcpStream, tls:Option<&options::TlsOptions>) -> Result<Connection> {
         if let Some(ref tls) = tls.as_ref() {
-            let tls_session = ClientSession::new(&::std::sync::Arc::new(tls.to_rustls_config()?), &tls.hostname);
+            let hostname = webpki::DNSNameRef::try_from_ascii_str(&tls.hostname)
+                .map_err(|()| ErrorKind::InvalidDnsName)?;
+            let tls_session = ClientSession::new(&::std::sync::Arc::new(tls.to_rustls_config()?), hostname);
             Ok(Connection::Tls {
                 connection,
                 tls_session,

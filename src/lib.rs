@@ -27,6 +27,7 @@ pub mod error {
         errors {
             InvalidState
             PacketSizeLimitExceeded
+            InvalidDnsName
             Connack(code: ::mqtt3::ConnectReturnCode) {
                 description("mqtt negotiation failed")
                 display("mqtt negogiation failed with return code: {:?}", code)
