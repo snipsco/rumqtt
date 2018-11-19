@@ -15,7 +15,7 @@ extern crate serde_derive;
 extern crate webpki;
 extern crate webpki_roots;
 
-#[allow(unused_doc_comment)]
+#[allow(unused_doc_comments)]
 pub mod error {
     error_chain! {
         foreign_links {
