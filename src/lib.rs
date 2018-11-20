@@ -15,7 +15,7 @@ extern crate serde_derive;
 extern crate webpki;
 extern crate webpki_roots;
 
-#[allow(unused_doc_comment)]
+#[allow(unused_doc_comments)]
 pub mod error {
     error_chain! {
         foreign_links {
@@ -27,6 +27,7 @@ pub mod error {
         errors {
             InvalidState
             PacketSizeLimitExceeded
+            InvalidDnsName
             Connack(code: ::mqtt3::ConnectReturnCode) {
                 description("mqtt negotiation failed")
                 display("mqtt negogiation failed with return code: {:?}", code)
