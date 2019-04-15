@@ -1,9 +1,8 @@
-use std::time::{Duration, Instant};
-use std::collections::VecDeque;
-
+use error::*;
 use mqtt3;
 use MqttOptions;
-use error::*;
+use std::collections::{HashMap, VecDeque};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MqttConnectionStatus {
@@ -41,7 +40,8 @@ pub struct MqttState {
     // Even so, if broker crashes, all its state will be lost (most brokers).
     // client should resubscribe it comes back up again or else the data will
     // be lost
-    subscriptions: Vec<::client::Subscription>,
+    subscriptions: HashMap<usize, ::client::Subscription>,
+    path_usage: HashMap<String, usize>,
 }
 
 /// Design: `MqttState` methods will just modify the state of the object
@@ -60,7 +60,8 @@ impl MqttState {
             last_flush: Instant::now(),
             last_pkid: mqtt3::PacketIdentifier(0),
             outgoing_pub: VecDeque::new(),
-            subscriptions: Vec::new(),
+            subscriptions: HashMap::new(),
+            path_usage: HashMap::new(),
         }
     }
 
@@ -97,13 +98,13 @@ impl MqttState {
         use self::MqttConnectionStatus::*;
         use ReconnectOptions::*;
         match (self.connection_status, self.opts.reconnect) {
-              (Handshake { initial: true }, Always(d))
-            | (Handshake {..}, AfterFirstSuccess(d))
+            (Handshake { initial: true }, Always(d))
+            | (Handshake { .. }, AfterFirstSuccess(d))
             | (Connected, AfterFirstSuccess(d))
             | (Connected, Always(d))
             | (WantConnect { .. }, AfterFirstSuccess(d))
             | (WantConnect { .. }, Always(d))
-                => self.connection_status = WantConnect { when: Instant::now()+d },
+            => self.connection_status = WantConnect { when: Instant::now() + d },
             _ => self.connection_status = Disconnected
         }
     }
@@ -131,13 +132,14 @@ impl MqttState {
         } else {
             let sub = if self.subscriptions.len() > 0 {
                 Some(mqtt3::Subscribe {
-                    pid: self.next_pkid(), 
-                    topics: self.subscriptions.iter().map(|s| {
+                    pid: self.next_pkid(),
+                    topics: self.subscriptions.iter().map(|(_id, s)| {
                         ::mqtt3::SubscribeTopic {
                             topic_path: s.topic_path.path.clone(),
                             qos: s.qos,
-                        }}).collect()
-            })
+                        }
+                    }).collect(),
+                })
             } else {
                 None
             };
@@ -202,7 +204,7 @@ impl MqttState {
         let qos = publish.qos;
 
         let concrete = ::mqtt3::TopicPath::from_str(&publish.topic_name)?;
-        for sub in &self.subscriptions {
+        for (_id, sub) in &self.subscriptions {
             if sub.topic_path.is_match(&concrete) {
                 (sub.callback)(&publish);
             }
@@ -289,7 +291,12 @@ impl MqttState {
                 }
             })
             .collect();
-        self.subscriptions.extend(subs);
+        for s in &subs {
+            *self.path_usage.entry(s.topic_path.path.clone()).or_insert(0) += 1;
+        }
+        self.subscriptions.extend(subs.into_iter().map(|it| {
+            (it.id, it)
+        }));
 
         if self.connection_status == MqttConnectionStatus::Connected {
             Ok(mqtt3::Subscribe { pid: pkid, topics })
@@ -302,14 +309,47 @@ impl MqttState {
         }
     }
 
+    pub fn handle_outgoing_unsubscribe(
+        &mut self,
+        ids: Vec<usize>,
+    ) -> Result<Option<mqtt3::Unsubscribe>> {
+        let mut topics = vec![];
+        for id in ids {
+            if let Some(sub) = self.subscriptions.remove(&id) {
+                // we unwrap here because if the value is not there, there is an error in this code
+                let mut path_count = self.path_usage.get_mut(&sub.topic_path.path).unwrap();
+                *path_count -= 1;
+                if *path_count == 0 { topics.push(sub.topic_path.path) }
+            }
+        }
+        if !topics.is_empty() {
+            let pkid = self.next_pkid();
+
+            if self.connection_status == MqttConnectionStatus::Connected {
+                Ok(Some(mqtt3::Unsubscribe { pid: pkid, topics }))
+            } else {
+                error!(
+                    "State = {:?}. Shouldn't unsubscribe in this state",
+                    self.connection_status
+                );
+                Err(ErrorKind::InvalidState.into())
+            }
+        } else {
+            Ok(None)
+        }
+    }
 
     pub fn handle_incoming_suback(&mut self, ack: mqtt3::Suback) -> Result<()> {
         if ack.return_codes
             .iter()
             .any(|v| *v == ::mqtt3::SubscribeReturnCodes::Failure)
-        {
-            Err(format!("rejected subscription"))?
-        };
+            {
+                Err(format!("rejected subscription"))?
+            };
+        Ok(())
+    }
+
+    pub fn handle_incoming_unsuback(&mut self, ack: mqtt3::PacketIdentifier) -> Result<()> {
         Ok(())
     }
 
@@ -340,14 +380,13 @@ impl MqttState {
 
 #[cfg(test)]
 mod test {
+    use error::*;
+    use mqtt3::*;
+    use options::MqttOptions;
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
-
     use super::{MqttConnectionStatus, MqttState};
-    use mqtt3::*;
-    use options::MqttOptions;
-    use error::*;
 
     #[test]
     fn next_pkid_roll() {
@@ -546,7 +585,7 @@ mod test {
         mqtt.handle_socket_disconnect();
         assert_eq!(mqtt.outgoing_pub.len(), 0);
         match mqtt.connection_status {
-            MqttConnectionStatus::WantConnect { .. } => {},
+            MqttConnectionStatus::WantConnect { .. } => {}
             _ => panic!()
         }
         assert_eq!(mqtt.await_pingresp, false);
@@ -574,7 +613,7 @@ mod test {
         mqtt.handle_socket_disconnect();
         assert_eq!(mqtt.outgoing_pub.len(), 3);
         match mqtt.connection_status {
-            MqttConnectionStatus::WantConnect { .. } => {},
+            MqttConnectionStatus::WantConnect { .. } => {}
             _ => panic!()
         }
         assert_eq!(mqtt.await_pingresp, false);
@@ -585,7 +624,7 @@ mod test {
         let mut mqtt = MqttState::new(MqttOptions::new("test-id", "127.0.0.1:1883"));
 
         match mqtt.connection_status {
-            MqttConnectionStatus::WantConnect { .. } => {},
+            MqttConnectionStatus::WantConnect { .. } => {}
             _ => panic!()
         }
         mqtt.handle_outgoing_connect(true);
@@ -609,7 +648,7 @@ mod test {
 
         assert!(mqtt.handle_incoming_connack(connack).is_err());
         match mqtt.connection_status {
-            MqttConnectionStatus::WantConnect { .. } => {},
+            MqttConnectionStatus::WantConnect { .. } => {}
             _ => panic!()
         }
     }
