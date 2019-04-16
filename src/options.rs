@@ -1,9 +1,9 @@
 use std::time::Duration;
 use std::{ fs, io, path };
 use std::sync::{Arc, Mutex};
-use error::Result;
+use crate::error::Result;
 
-use RustlsConfig;
+use crate::RustlsConfig;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ReconnectOptions {
