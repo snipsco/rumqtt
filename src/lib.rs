@@ -43,6 +43,7 @@ mod options;
 mod state;
 
 pub use rustls::ClientConfig as RustlsConfig;
-pub use options::{MqttOptions, ReconnectOptions, TlsOptions};
-pub use client::MqttClient;
+pub use crate::options::{MqttOptions, ReconnectOptions, TlsOptions};
+pub use crate::client::{MqttClient, PublishBuilder, SubscriptionBuilder};
+pub use crate::state::MqttConnectionStatus;
 pub use mqtt3::{Message, Publish, QoS, ToTopicPath, TopicPath};

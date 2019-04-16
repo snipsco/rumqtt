@@ -8,11 +8,11 @@ use mio_more::channel::*;
 
 use rustls::{ ClientSession, Session };
 
-use MqttOptions;
-use state::MqttState;
-use error::*;
-use options;
-use client::Command;
+use crate::MqttOptions;
+use crate::state::MqttState;
+use crate::error::*;
+use crate::options;
+use crate::client::Command;
 
 pub enum Connection {
     Tcp {
@@ -259,7 +259,7 @@ impl ConnectionState {
 
     pub fn wait_for_connack(&mut self) -> Result<()> {
         let time_limit = Instant::now() + self.state().opts().mqtt_connection_timeout;
-        while self.state().status() != ::state::MqttConnectionStatus::Connected {
+        while self.state().status() != crate::state::MqttConnectionStatus::Connected {
             let now = Instant::now();
             if now > time_limit {
                 Err(format!(

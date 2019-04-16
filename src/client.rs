@@ -1,4 +1,4 @@
-use error::*;
+use crate::error::*;
 
 use mqtt3::{QoS, ToTopicPath, TopicPath};
 
@@ -6,15 +6,16 @@ use mio_more::channel::*;
 
 use std::ops::DerefMut;
 
-use MqttOptions;
+use crate::MqttOptions;
 
-#[allow(unused)]
-#[derive(DebugStub)]
+#[derive(Debug)]
 pub enum Command {
-    Status(#[debug_stub = ""] ::std::sync::mpsc::Sender<::state::MqttConnectionStatus>),
+    Status(std::sync::mpsc::Sender<crate::state::MqttConnectionStatus>),
     Subscribe(Subscription),
     Publish(Publish),
+    #[allow(unused)]
     Connect,
+    #[allow(unused)]
     Disconnect,
 }
 
@@ -31,7 +32,7 @@ impl MqttClient {
         debug!("{}: Client start", id);
         let (commands_tx, commands_rx) = sync_channel(10);
         let callback = opts.get_disconnected_callback();
-        let mut connection = ::connection::start(opts, commands_rx)?;
+        let mut connection = crate::connection::start(opts, commands_rx)?;
         debug!("{}: Spawning client thread", id);
         ::std::thread::spawn(move || {
             'outer: loop {
@@ -47,13 +48,13 @@ impl MqttClient {
                 }
                 debug!("{}: Entering reconnecting loop", id);
                 loop {
-                    if let ::state::MqttConnectionStatus::WantConnect { when } =
+                    if let crate::state::MqttConnectionStatus::WantConnect { when } =
                         connection.state().status()
                     {
                         let now = ::std::time::Instant::now();
                         if now < when {
-                            info!("Will try to reconnecct in {} secs.", (when-now).as_secs());
-                            ::std::thread::sleep(when-now);
+                            info!("Will try to reconnecct in {} secs.", (when - now).as_secs());
+                            ::std::thread::sleep(when - now);
                         }
                     } else {
                         info!("not seeking reconnection");
@@ -112,10 +113,12 @@ impl MqttClient {
     }
 
     pub fn connected(&self) -> bool {
-        self.status().map(|s| s == ::state::MqttConnectionStatus::Connected).unwrap_or(false)
+        self.status()
+            .map(|s| s == crate::state::MqttConnectionStatus::Connected)
+            .unwrap_or(false)
     }
 
-    pub fn status(&self) -> Result<::state::MqttConnectionStatus> {
+    pub fn status(&self) -> Result<crate::state::MqttConnectionStatus> {
         let (tx, rx) = ::std::sync::mpsc::channel();
         self.send_command(Command::Status(tx))?;
         Ok(rx.recv().map_err(|_| "Client thread looks dead")?)
@@ -136,7 +139,8 @@ pub struct Subscription {
     pub id: Option<String>,
     pub topic_path: TopicPath,
     pub qos: ::mqtt3::QoS,
-    #[debug_stub = ""] pub callback: SubscriptionCallback,
+    #[debug_stub = ""]
+    pub callback: SubscriptionCallback,
 }
 
 #[must_use]

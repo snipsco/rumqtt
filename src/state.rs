@@ -2,8 +2,8 @@ use std::time::{Duration, Instant};
 use std::collections::VecDeque;
 
 use mqtt3;
-use MqttOptions;
-use error::*;
+use crate::MqttOptions;
+use crate::error::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MqttConnectionStatus {
@@ -41,7 +41,7 @@ pub struct MqttState {
     // Even so, if broker crashes, all its state will be lost (most brokers).
     // client should resubscribe it comes back up again or else the data will
     // be lost
-    subscriptions: Vec<::client::Subscription>,
+    subscriptions: Vec<crate::client::Subscription>,
 }
 
 /// Design: `MqttState` methods will just modify the state of the object
@@ -95,7 +95,7 @@ impl MqttState {
 
     fn set_status_after_error(&mut self) {
         use self::MqttConnectionStatus::*;
-        use ReconnectOptions::*;
+        use crate::ReconnectOptions::*;
         match (self.connection_status, self.opts.reconnect) {
               (Handshake { initial: true }, Always(d))
             | (Handshake {..}, AfterFirstSuccess(d))
@@ -278,7 +278,7 @@ impl MqttState {
 
     pub fn handle_outgoing_subscribe(
         &mut self,
-        subs: Vec<::client::Subscription>,
+        subs: Vec<crate::client::Subscription>,
     ) -> Result<mqtt3::Subscribe> {
         let pkid = self.next_pkid();
         let topics = subs.iter()
@@ -346,8 +346,8 @@ mod test {
 
     use super::{MqttConnectionStatus, MqttState};
     use mqtt3::*;
-    use options::MqttOptions;
-    use error::*;
+    use crate::options::MqttOptions;
+    use crate::error::*;
 
     #[test]
     fn next_pkid_roll() {
