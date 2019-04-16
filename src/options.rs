@@ -1,5 +1,6 @@
 use std::time::Duration;
 use std::{ fs, io, path };
+use std::sync::{Arc, Mutex};
 use error::Result;
 
 use RustlsConfig;
@@ -88,6 +89,7 @@ pub struct MqttOptions {
     pub last_will: Option<::mqtt3::LastWill>,
     /// TLS configuration
     pub tls: Option<TlsOptions>,
+    error_callback: Option<Arc<Mutex<FnMut() + Send>>>,
 }
 
 impl MqttOptions {
@@ -106,6 +108,7 @@ impl MqttOptions {
             max_packet_size: 100 * 1024,
             last_will: None,
             tls: None,
+            error_callback: None,
         }
     }
 
@@ -158,5 +161,18 @@ impl MqttOptions {
     pub fn set_last_will(mut self, will: Option<::mqtt3::LastWill>) -> Self {
         self.last_will = will;
         self
+    }
+
+    /// Set the disconnected callback.
+    /// This callback will be called when the client has given up and will not try any
+    /// reconnection.
+    pub fn set_disconnected_callback<F: 'static + FnMut() + Send>(mut self, callback: F) -> Self {
+        self.error_callback = Some(Arc::new(Mutex::new(callback)));
+        self
+    }
+
+    /// Get a reference of the callback
+    pub fn get_disconnected_callback(&self) -> Option<Arc<Mutex<FnMut() + Send>>> {
+        self.error_callback.as_ref().map(Arc::clone)
     }
 }

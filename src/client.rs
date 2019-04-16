@@ -4,6 +4,8 @@ use mqtt3::{QoS, ToTopicPath, TopicPath};
 
 use mio_more::channel::*;
 
+use std::ops::DerefMut;
+
 use MqttOptions;
 
 #[allow(unused)]
@@ -28,6 +30,7 @@ impl MqttClient {
         let id = opts.client_id.clone();
         debug!("{}: Client start", id);
         let (commands_tx, commands_rx) = sync_channel(10);
+        let callback = opts.get_disconnected_callback();
         let mut connection = ::connection::start(opts, commands_rx)?;
         debug!("{}: Spawning client thread", id);
         ::std::thread::spawn(move || {
@@ -69,6 +72,10 @@ impl MqttClient {
                 }
             }
             info!("client thread done");
+            if let Some(callback) = callback {
+                let mut callback = callback.lock().unwrap();
+                callback.deref_mut()();
+            }
         });
 
         Ok(MqttClient {
